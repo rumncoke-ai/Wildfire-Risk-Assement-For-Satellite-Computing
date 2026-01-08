@@ -2,16 +2,16 @@ from typing import List, Optional
 
 import hydra
 from omegaconf import DictConfig
-from pytorch_lightning import (
+from lightning.pytorch import (
     Callback,
     LightningDataModule,
     LightningModule,
     Trainer,
     seed_everything,
 )
-from pytorch_lightning.loggers import LightningLoggerBase
+from lightning.pytorch.loggers import Logger
 
-from wildfire_forecasting.utils import utils
+from src.utils import utils
 
 log = utils.get_logger(__name__)
 
@@ -48,7 +48,7 @@ def train(config: DictConfig) -> Optional[float]:
                 callbacks.append(hydra.utils.instantiate(cb_conf))
 
     # Init lightning loggers
-    logger: List[LightningLoggerBase] = []
+    logger: List[Logger] = []
     if "logger" in config:
         for _, lg_conf in config.logger.items():
             if "_target_" in lg_conf:
@@ -79,7 +79,7 @@ def train(config: DictConfig) -> Optional[float]:
     # Evaluate model on test set, using the best model achieved during training
     if config.get("test_after_training") and not config.trainer.get("fast_dev_run"):
         log.info("Starting testing with best model!")
-        trainer.test(datamodule=datamodule, ckpt_path="best")
+        trainer.test(datamodule=datamodule, ckpt_path="best", weights_only=False)
 
     # Make sure everything closed properly
     log.info("Finalizing!")

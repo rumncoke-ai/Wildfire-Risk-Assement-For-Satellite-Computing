@@ -7,9 +7,9 @@ import matplotlib.pyplot as plt
 import seaborn as sn
 import torch
 import wandb
-from pytorch_lightning import Callback, Trainer
-from pytorch_lightning.loggers import LoggerCollection, WandbLogger
-from pytorch_lightning.utilities import rank_zero_only
+from lightning.pytorch import Callback, Trainer
+from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.utilities import rank_zero_only
 from sklearn import metrics
 from sklearn.metrics import f1_score, precision_score, recall_score
 import gc
@@ -21,10 +21,9 @@ def get_wandb_logger(trainer: Trainer) -> WandbLogger:
     if isinstance(trainer.logger, WandbLogger):
         return trainer.logger
 
-    if isinstance(trainer.logger, LoggerCollection):
-        for logger in trainer.logger:
-            if isinstance(logger, WandbLogger):
-                return logger
+    for logger in trainer.loggers:
+        if isinstance(logger, WandbLogger):
+            return logger
 
     raise Exception(
         "You are using wandb related callback, but WandbLogger was not found for some reason..."
@@ -103,7 +102,7 @@ class LogConfusionMatrix(Callback):
         self.ready = True
 
     def on_validation_batch_end(
-            self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx
+            self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0
     ):
         """Gather data from single batch."""
         if self.ready:
@@ -163,7 +162,7 @@ class LogF1PrecRecHeatmap(Callback):
         self.ready = True
 
     def on_validation_batch_end(
-            self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx
+            self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0
     ):
         """Gather data from single batch."""
         if self.ready:

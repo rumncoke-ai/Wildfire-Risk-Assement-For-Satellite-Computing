@@ -12,6 +12,7 @@ defaults:
   - hparams_search: null
 
   - hydra: default.yaml
+  - _self_
 
   # enable color logging
 #  - override hydra/hydra_logging: colorlog

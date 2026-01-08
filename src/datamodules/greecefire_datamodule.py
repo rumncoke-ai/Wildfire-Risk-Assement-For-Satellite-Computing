@@ -1,6 +1,6 @@
 from typing import Optional, Tuple
 
-from pytorch_lightning import LightningDataModule
+from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader
 from src.datamodules.datasets.greecefire_dataset import FireDataset_npy
 
@@ -23,7 +23,7 @@ class FireDSDataModule(LightningDataModule):
 
     def __init__(
             self,
-            dataset_root: str = None,
+            dataset_root: str | None = None,
             batch_size: int = 64,
             num_workers: int = 1,
             pin_memory: bool = False,

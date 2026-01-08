@@ -4,11 +4,12 @@ import gc
 import warnings
 from typing import List, Sequence
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import rich.syntax
 import rich.tree
 from omegaconf import DictConfig, OmegaConf
-from pytorch_lightning.utilities import rank_zero_only
+from lightning.pytorch.loggers import Logger, WandbLogger
+from lightning.pytorch.utilities import rank_zero_only
 
 
 def get_logger(name=__name__, level=logging.INFO) -> logging.Logger:
@@ -119,7 +120,7 @@ def log_hyperparameters(
         datamodule: pl.LightningDataModule,
         trainer: pl.Trainer,
         callbacks: List[pl.Callback],
-        logger: List[pl.loggers.LightningLoggerBase],
+        logger: List[Logger],
 ) -> None:
     """This method controls which parameters from Hydra config are saved by Lightning loggers.
 
@@ -162,7 +163,7 @@ def finish(
         datamodule: pl.LightningDataModule,
         trainer: pl.Trainer,
         callbacks: List[pl.Callback],
-        logger: List[pl.loggers.LightningLoggerBase],
+        logger: List[Logger],
 ) -> None:
     """Makes sure everything closed properly."""
 
@@ -171,7 +172,7 @@ def finish(
     del trainer
     del model
     for lg in logger:
-        if isinstance(lg, pl.loggers.wandb.WandbLogger):
+        if isinstance(lg, WandbLogger):
             import wandb
 
             wandb.finish()

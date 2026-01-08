@@ -1,4 +1,4 @@
-_target_: wildfire_forecasting.models.greece_fire_models.LSTM_fire_model
+_target_: src.models.greece_fire_models.LSTM_fire_model
 
 dynamic_features: ${sel_dynamic_features}
 static_features: ${sel_static_features}

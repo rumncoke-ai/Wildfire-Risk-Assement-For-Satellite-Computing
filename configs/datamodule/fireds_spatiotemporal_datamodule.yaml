@@ -1,8 +1,8 @@
-_target_: wildfire_forecasting.datamodules.greecefire_datamodule.FireDSDataModule
+_target_: src.datamodules.greecefire_datamodule.FireDSDataModule
 
 dataset_root: "../datasets_grl"
 batch_size: 256
-num_workers: 16
+num_workers: 2
 pin_memory: False
 access_mode: "spatiotemporal"
 problem_class: "classification"

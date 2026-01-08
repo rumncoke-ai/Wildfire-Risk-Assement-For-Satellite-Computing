@@ -34,10 +34,12 @@ class FireDataset_npy(Dataset):
         if not dataset_root:
             raise ValueError('dataset_root variable must be set. Check README')
         
+        
         dataset_root = Path(dataset_root)
         min_max_file = dataset_root/'minmax_clc.json'
         variable_file = dataset_root/'variable_dict.json'
 
+            
         with open(min_max_file) as f:
             self.min_max_dict = json.load(f)
 
