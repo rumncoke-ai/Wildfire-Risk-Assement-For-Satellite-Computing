@@ -13,6 +13,7 @@ from lightning.pytorch.utilities import rank_zero_only
 from sklearn import metrics
 from sklearn.metrics import f1_score, precision_score, recall_score
 import gc
+from thop import profile
 
 
 def get_wandb_logger(trainer: Trainer) -> WandbLogger:
@@ -206,3 +207,43 @@ class LogF1PrecRecHeatmap(Callback):
             self.preds.clear()
             self.targets.clear()
 
+
+class LogModelFLOPs(Callback):
+    """
+    Calculates the FLOPs (Floating Point Operations) and Parameters of the model
+    at the start of the run and logs them to WandB summary.
+    """
+    def __init__(self, input_shape, device="cuda"):
+        self.input_shape = input_shape
+        self.device = device
+
+    @rank_zero_only
+    def on_train_start(self, trainer, pl_module):
+        logger = get_wandb_logger(trainer)
+        experiment = logger.experiment
+
+        pl_module.eval()
+        pl_module.to(self.device)
+
+        dummy_input = torch.randn(
+            (1, *self.input_shape), device=self.device
+        )
+
+        with torch.no_grad():
+            flops, params = profile(
+                pl_module,
+                inputs=(dummy_input,),
+                verbose=False
+            )
+
+        # Convert to human-readable units
+        flops_g = flops / 1e9
+        params_m = params / 1e6
+
+        experiment.log(
+            {
+                "model/FLOPs_G": flops_g,
+                "model/Params_M": params_m,
+            },
+            commit=False,
+        )

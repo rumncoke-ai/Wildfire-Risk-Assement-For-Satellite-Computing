@@ -93,3 +93,79 @@ class SimpleLSTM(nn.Module):
         lstm_out, _ = self.lstm(x)
         x = self.fc_nn(lstm_out[:, -1, :])
         return torch.nn.functional.log_softmax(x, dim=1)
+
+class SimpleCNN(nn.Module):
+    def __init__(self, hparams: dict):
+        super().__init__()
+        
+        input_dim = len(hparams['static_features']) + len(hparams['dynamic_features'])
+        if hparams['clc'] == 'vec':
+            input_dim += 10
+
+        hidden_size = hparams['hidden_size']
+        dropout = hparams['dropout']
+        kernel_size = 3
+
+        self.ln1 = torch.nn.LayerNorm(input_dim)
+
+        cnn_layers = hparams['cnn_layers']
+
+        self.conv3d = nn.Conv3d(
+            in_channels=input_dim, 
+            out_channels=hidden_size, 
+            kernel_size=(3, 3, 3), # (Time, Height, Width)
+            padding=(1, 1, 1)
+        
+        self.conv1 = nn.Conv2d(
+            hidden_size, 
+            hidden_size, 
+            kernel_size=(kernel_size, kernel_size), 
+            stride=(1, 1),
+            padding=(1, 1)
+        )
+
+        # fully-connected part
+        self.fc1 = nn.Linear((25 // 2) * (25 // 2) * hidden_size, 2 * hidden_size)
+        self.drop1 = nn.Dropout(dropout)
+
+        self.fc2 = nn.Linear(2 * hidden_size, hidden_size)
+        self.drop2 = nn.Dropout(dropout)
+
+        self.fc3 = nn.Linear(hidden_size, 2)
+    
+    def forward(self, x: torch.Tensor):
+        # Input shape: (b, t, c, h, w)
+        
+        # 1. Normalization
+        # permute to (b, t, h, w, c) for LayerNorm, then back to (b, t, c, h, w)
+        x = self.ln1(x.permute(0, 1, 3, 4, 2)).permute(0, 1, 4, 2, 3)
+
+        # 2. Spatiotemporal Convolution
+        # Conv3d requires shape: (Batch, Channel, Time, Height, Width)
+        # Current x is (Batch, Time, Channel, Height, Width), so we swap Time(1) and Channel(2)
+        x = x.permute(0, 2, 1, 3, 4)
+        
+        x = self.conv3d(x)
+        x = F.relu(x)
+
+        # 3. Temporal Aggregation
+        # We need to collapse the 'Time' dimension to get to a 2D spatial map 
+        # that the rest of your network expects.
+        # We use Adaptive Average Pooling on the time dim to reduce it to 1.
+        # Shape becomes: (Batch, Channel, 1, Height, Width)
+        x = F.adaptive_avg_pool3d(x, (1, x.size(3), x.size(4)))
+        
+        # Remove the now-empty Time dimension: (Batch, Channel, Height, Width)
+        x = x.squeeze(2)
+
+        # 4. Spatial CNN (Identical to SimpleConvLSTM)
+        x = F.max_pool2d(F.relu(self.conv1(x)), 2)
+
+        # 5. Classifier Head (Identical to SimpleConvLSTM)
+        x = torch.flatten(x, 1)
+        x = F.relu(self.drop1(self.fc1(x)))
+        x = F.relu(self.drop2(self.fc2(x)))
+        x = self.fc3(x)
+        
+        return torch.nn.functional.log_softmax(x, dim=1)
+
