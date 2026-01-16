@@ -21,6 +21,5 @@ log_f1_precision_recall_heatmap:
 log_confusion_matrix:
   _target_: src.callbacks.wandb_callbacks.LogConfusionMatrix
 
-log_flop: 
+log_flop:
   _target_: src.callbacks.wandb_callbacks.LogModelFLOPs
-

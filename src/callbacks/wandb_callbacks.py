@@ -208,42 +208,158 @@ class LogF1PrecRecHeatmap(Callback):
             self.targets.clear()
 
 
+# class LogModelFLOPs(Callback):
+#     """
+#     Calculates the FLOPs (Floating Point Operations) and Parameters of the model
+#     at the start of the run and logs them to WandB summary.
+#     """
+#     def __init__(self):
+#         self.calculated = False
+
+#     @rank_zero_only
+#     def on_train_start(self, trainer, pl_module):
+#         if self.calculated:
+#             return
+
+#         try:
+#             import thop
+#         except ImportError:
+#             print("❌ 'thop' library not found. Install it via: pip install thop")
+#             return
+
+#         # 1. Grab a single batch from the training dataloader
+#         try:
+#             # We fetch one batch to get the correct input shapes (batch_size, time, channels, etc.)
+#             dl = trainer.train_dataloader
+#             batch = next(iter(dl))
+            
+#             # Ensure batch is on the correct device
+#             batch = [t.to(pl_module.device) if torch.is_tensor(t) else t for t in batch]
+#         except Exception as e:
+#             print(f"⚠️ Could not load a batch for FLOPs calculation: {e}")
+#             return
+
+#         # 2. Register a hook to capture the processed input
+#         # We do this because your LightningModule.step() does complex processing 
+#         # (combining dynamic+static) before passing it to self.model.
+#         # We want to measure self.model using the FINAL combined tensor.
+#         captured_input = []
+
+#         def hook_fn(module, inputs, output):
+#             # Inputs is a tuple; we take the first element (the tensor x)
+#             captured_input.append(inputs[0])
+
+#         # Attach hook to the inner model (SimpleCNN or SimpleLSTM)
+#         handle = pl_module.model.register_forward_hook(hook_fn)
+
+#         # 3. Run a "Dry" Forward Pass
+#         pl_module.eval() # Set to eval to avoid updating batchnorm stats
+#         with torch.no_grad():
+#             try:
+#                 # Trigger the forward pass logic defined in your training_step
+#                 pl_module.training_step(batch, batch_idx=0)
+#             except Exception as e:
+#                 # This might fail if the step relies on specific optimizer states, 
+#                 # but usually it's fine for a single pass.
+#                 print(f"⚠️ Dry run for FLOPs failed: {e}")
+        
+#         # Cleanup: Remove hook and reset mode
+#         handle.remove()
+#         pl_module.train()
+
+#         # 4. Calculate FLOPs using the captured input
+#         if captured_input:
+#             try:
+#                 input_t = captured_input[0]
+                
+#                 # thop.profile returns (MACs, Params). FLOPs ~= 2 * MACs
+#                 macs, params = thop.profile(pl_module.model, inputs=(input_t, ), verbose=False)
+                
+#                 gflops = macs / 1e9
+#                 mparams = params / 1e6
+
+#                 print(f"\n📊 Model Efficiency: {gflops:.4f} GFLOPs | {mparams:.4f} MParams\n")
+
+#                 # 5. Log to WandB Summary (Best for single-value comparison)
+#                 logger = get_wandb_logger(trainer)
+#                 # Using .summary ensures it appears at the top level of the run dashboard
+#                 logger.experiment.summary["GFLOPs"] = gflops
+#                 logger.experiment.summary["Params_M"] = mparams
+                
+#                 self.calculated = True
+                
+#             except Exception as e:
+#                 print(f"⚠️ Error calculating FLOPs with thop: {e}")
+#         else:
+#             print("⚠️ Could not capture model input. FLOPs not calculated.")
+
 class LogModelFLOPs(Callback):
-    """
-    Calculates the FLOPs (Floating Point Operations) and Parameters of the model
-    at the start of the run and logs them to WandB summary.
-    """
-    def __init__(self, input_shape, device="cuda"):
-        self.input_shape = input_shape
-        self.device = device
+    def __init__(self):
+        self.calculated = False
 
     @rank_zero_only
-    def on_train_start(self, trainer, pl_module):
-        logger = get_wandb_logger(trainer)
-        experiment = logger.experiment
+    def on_fit_start(self, trainer, pl_module):
+        if self.calculated:
+            return
+
+        try:
+            import thop
+        except ImportError:
+            print("❌ Install thop: pip install thop")
+            return
+
+        # --- Get one batch safely ---
+        try:
+            dl = trainer.train_dataloader()
+            batch = next(iter(dl))
+        except Exception as e:
+            print(f"⚠️ Could not load batch: {e}")
+            return
+
+        def move(obj):
+            if torch.is_tensor(obj):
+                return obj.to(pl_module.device)
+            if isinstance(obj, (list, tuple)):
+                return type(obj)(move(o) for o in obj)
+            if isinstance(obj, dict):
+                return {k: move(v) for k, v in obj.items()}
+            return obj
+
+        batch = move(batch)
+
+        # --- Capture final model input ---
+        captured_input = []
+
+        def hook_fn(module, inputs, output):
+            if inputs and torch.is_tensor(inputs[0]):
+                captured_input.append(inputs[0])
+
+        handle = pl_module.model.register_forward_hook(hook_fn)
 
         pl_module.eval()
-        pl_module.to(self.device)
-
-        dummy_input = torch.randn(
-            (1, *self.input_shape), device=self.device
-        )
-
         with torch.no_grad():
-            flops, params = profile(
-                pl_module,
-                inputs=(dummy_input,),
-                verbose=False
-            )
+            try:
+                pl_module.training_step(batch, batch_idx=0)
+            except Exception as e:
+                print(f"⚠️ Dry run failed: {e}")
 
-        # Convert to human-readable units
-        flops_g = flops / 1e9
-        params_m = params / 1e6
+        handle.remove()
+        pl_module.train()
 
-        experiment.log(
-            {
-                "model/FLOPs_G": flops_g,
-                "model/Params_M": params_m,
-            },
-            commit=False,
-        )
+        if not captured_input:
+            print("⚠️ No input captured for FLOPs")
+            return
+
+        x = captured_input[0][:1]  # batch size = 1
+
+        macs, params = thop.profile(pl_module.model, inputs=(x,), verbose=False)
+        gflops = 2 * macs / 1e9
+        mparams = params / 1e6
+
+        logger = get_wandb_logger(trainer)
+        logger.experiment.summary["GFLOPs"] = gflops
+        logger.experiment.summary["Params_M"] = mparams
+
+        print(f"\n📊 GFLOPs: {gflops:.4f} | Params: {mparams:.4f}M\n")
+
+        self.calculated = True

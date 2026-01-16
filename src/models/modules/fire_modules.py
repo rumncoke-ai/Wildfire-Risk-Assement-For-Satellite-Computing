@@ -108,13 +108,15 @@ class SimpleCNN(nn.Module):
 
         self.ln1 = torch.nn.LayerNorm(input_dim)
 
-        cnn_layers = hparams['cnn_layers']
+        # cnn_layers = hparams['cnn_layers']
 
         self.conv3d = nn.Conv3d(
             in_channels=input_dim, 
             out_channels=hidden_size, 
-            kernel_size=(3, 3, 3), # (Time, Height, Width)
+            kernel_size=(3, 3, 3),
             padding=(1, 1, 1)
+        )
+
         
         self.conv1 = nn.Conv2d(
             hidden_size, 
@@ -168,4 +170,3 @@ class SimpleCNN(nn.Module):
         x = self.fc3(x)
         
         return torch.nn.functional.log_softmax(x, dim=1)
-
