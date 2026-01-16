@@ -1,0 +1,13 @@
+_target_: src.datamodules.greecefire_datamodule.FireDSDataModule
+
+dataset_root: "${hydra:runtime.cwd}/datasets_grl"
+batch_size: 256
+num_workers: 2
+pin_memory: False
+access_mode: "temporal"
+problem_class: "classification"
+nan_fill: -1.0
+sel_dynamic_features: ${sel_dynamic_features}
+sel_static_features: ${sel_static_features}
+prefetch_factor: 2
+persistent_workers: False

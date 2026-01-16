@@ -2,21 +2,22 @@ defaults:
   - model_checkpoint
   - early_stopping
   - model_summary
-  - rich_progress_bar
+  # - rich_progress_bar
   - _self_
 
 model_checkpoint:
-  dirpath: ${paths.output_dir}/checkpoints
+  # dirpath: ${paths.output_dir}/checkpoints
+  dirpath: checkpoints
   filename: "epoch_{epoch:03d}"
-  monitor: "val/acc"
-  mode: "max"
-  save_last: True
+  monitor: "val/loss" # name of the logged metric which determines when model is improving
+  mode: "min" # can be "max" or "min"
+  save_top_k: 1 # save k best models (determined by above metric)
+  save_last: True # additionaly always save model from last epoch
+  verbose: True
   auto_insert_metric_name: False
 
-early_stopping:
-  monitor: "val/acc"
-  patience: 100
-  mode: "max"
+log_f1_precision_recall_heatmap:
+  _target_: src.callbacks.wandb_callbacks.LogF1PrecRecHeatmap
 
-model_summary:
-  max_depth: -1
+log_confusion_matrix:
+  _target_: src.callbacks.wandb_callbacks.LogConfusionMatrix

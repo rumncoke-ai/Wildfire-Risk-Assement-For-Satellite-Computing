@@ -1,19 +1,32 @@
-# https://hydra.cc/docs/configure_hydra/intro/
+# # https://hydra.cc/docs/configure_hydra/intro/
 
-# enable color logging
-defaults:
-  - override hydra_logging: colorlog
-  - override job_logging: colorlog
+# # enable color logging
+# defaults:
+#   - override hydra_logging: colorlog
+#   - override job_logging: colorlog
 
-# output directory, generated dynamically on each run
+# # output directory, generated dynamically on each run
+# run:
+#   dir: ${paths.log_dir}/${task_name}/runs/${now:%Y-%m-%d}_${now:%H-%M-%S}
+# sweep:
+#   dir: ${paths.log_dir}/${task_name}/multiruns/${now:%Y-%m-%d}_${now:%H-%M-%S}
+#   subdir: ${hydra.job.num}
+
+# job_logging:
+#   handlers:
+#     file:
+#       # Incorporates fix from https://github.com/facebookresearch/hydra/pull/2242
+#       filename: ${hydra.runtime.output_dir}/${task_name}.log
+
+# output paths for hydra logs
 run:
-  dir: ${paths.log_dir}/${task_name}/runs/${now:%Y-%m-%d}_${now:%H-%M-%S}
+  dir: logs/runs/${now:%Y-%m-%d}/${now:%H-%M-%S}
 sweep:
-  dir: ${paths.log_dir}/${task_name}/multiruns/${now:%Y-%m-%d}_${now:%H-%M-%S}
+  dir: logs/multiruns/${now:%Y-%m-%d_%H-%M-%S}
   subdir: ${hydra.job.num}
 
-job_logging:
-  handlers:
-    file:
-      # Incorporates fix from https://github.com/facebookresearch/hydra/pull/2242
-      filename: ${hydra.runtime.output_dir}/${task_name}.log
+# you can set here environment variables that are universal for all users
+# for system specific variables (like data paths) it's better to use .env file!
+job:
+  env_set:
+    EXAMPLE_VAR: "example_value"

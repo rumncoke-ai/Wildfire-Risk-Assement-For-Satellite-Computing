@@ -2,7 +2,8 @@
 
 tensorboard:
   _target_: lightning.pytorch.loggers.tensorboard.TensorBoardLogger
-  save_dir: "${paths.output_dir}/tensorboard/"
+  # save_dir: "${paths.output_dir}/tensorboard/"
+  save_dir: "tensorboard"
   name: null
   log_graph: False
   default_hp_metric: True

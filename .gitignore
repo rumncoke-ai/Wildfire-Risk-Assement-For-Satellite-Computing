@@ -1,3 +1,7 @@
+datasets_grl
+datasets_grl/*
+datasets.tar.gz
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
