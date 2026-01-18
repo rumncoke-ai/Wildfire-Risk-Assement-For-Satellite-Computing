@@ -293,73 +293,73 @@ class LogF1PrecRecHeatmap(Callback):
 #         else:
 #             print("⚠️ Could not capture model input. FLOPs not calculated.")
 
-class LogModelFLOPs(Callback):
-    def __init__(self):
-        self.calculated = False
+# class LogModelFLOPs(Callback):
+#     def __init__(self):
+#         self.calculated = False
 
-    @rank_zero_only
-    def on_fit_start(self, trainer, pl_module):
-        if self.calculated:
-            return
+#     @rank_zero_only
+#     def on_fit_start(self, trainer, pl_module):
+#         if self.calculated:
+#             return
 
-        try:
-            import thop
-        except ImportError:
-            print("❌ Install thop: pip install thop")
-            return
+#         try:
+#             import thop
+#         except ImportError:
+#             print("❌ Install thop: pip install thop")
+#             return
 
-        # --- Get one batch safely ---
-        try:
-            dl = trainer.train_dataloader()
-            batch = next(iter(dl))
-        except Exception as e:
-            print(f"⚠️ Could not load batch: {e}")
-            return
+#         # --- Get one batch safely ---
+#         try:
+#             dl = trainer.train_dataloader()
+#             batch = next(iter(dl))
+#         except Exception as e:
+#             print(f"⚠️ Could not load batch: {e}")
+#             return
 
-        def move(obj):
-            if torch.is_tensor(obj):
-                return obj.to(pl_module.device)
-            if isinstance(obj, (list, tuple)):
-                return type(obj)(move(o) for o in obj)
-            if isinstance(obj, dict):
-                return {k: move(v) for k, v in obj.items()}
-            return obj
+#         def move(obj):
+#             if torch.is_tensor(obj):
+#                 return obj.to(pl_module.device)
+#             if isinstance(obj, (list, tuple)):
+#                 return type(obj)(move(o) for o in obj)
+#             if isinstance(obj, dict):
+#                 return {k: move(v) for k, v in obj.items()}
+#             return obj
 
-        batch = move(batch)
+#         batch = move(batch)
 
-        # --- Capture final model input ---
-        captured_input = []
+#         # --- Capture final model input ---
+#         captured_input = []
 
-        def hook_fn(module, inputs, output):
-            if inputs and torch.is_tensor(inputs[0]):
-                captured_input.append(inputs[0])
+#         def hook_fn(module, inputs, output):
+#             if inputs and torch.is_tensor(inputs[0]):
+#                 captured_input.append(inputs[0])
 
-        handle = pl_module.model.register_forward_hook(hook_fn)
+#         handle = pl_module.model.register_forward_hook(hook_fn)
 
-        pl_module.eval()
-        with torch.no_grad():
-            try:
-                pl_module.training_step(batch, batch_idx=0)
-            except Exception as e:
-                print(f"⚠️ Dry run failed: {e}")
+#         pl_module.eval()
+#         with torch.no_grad():
+#             try:
+#                 pl_module.training_step(batch, batch_idx=0)
+#             except Exception as e:
+#                 print(f"⚠️ Dry run failed: {e}")
 
-        handle.remove()
-        pl_module.train()
+#         handle.remove()
+#         pl_module.train()
 
-        if not captured_input:
-            print("⚠️ No input captured for FLOPs")
-            return
+#         if not captured_input:
+#             print("⚠️ No input captured for FLOPs")
+#             return
 
-        x = captured_input[0][:1]  # batch size = 1
+#         x = captured_input[0][:1]  # batch size = 1
 
-        macs, params = thop.profile(pl_module.model, inputs=(x,), verbose=False)
-        gflops = 2 * macs / 1e9
-        mparams = params / 1e6
+#         macs, params = thop.profile(pl_module.model, inputs=(x,), verbose=False)
+#         gflops = 2 * macs / 1e9
+#         mparams = params / 1e6
 
-        logger = get_wandb_logger(trainer)
-        logger.experiment.summary["GFLOPs"] = gflops
-        logger.experiment.summary["Params_M"] = mparams
+#         logger = get_wandb_logger(trainer)
+#         logger.experiment.summary["GFLOPs"] = gflops
+#         logger.experiment.summary["Params_M"] = mparams
 
-        print(f"\n📊 GFLOPs: {gflops:.4f} | Params: {mparams:.4f}M\n")
+#         print(f"\n📊 GFLOPs: {gflops:.4f} | Params: {mparams:.4f}M\n")
 
-        self.calculated = True
+#         self.calculated = True
