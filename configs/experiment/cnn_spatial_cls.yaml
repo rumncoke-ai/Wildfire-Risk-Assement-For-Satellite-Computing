@@ -6,7 +6,7 @@
 defaults:
   - override /trainer: default.yaml # choose trainer from 'configs/trainer/'
   - override /model: greecefire_CNN_model.yaml
-  - override /datamodule: fireds_spatiotemporal_datamodule.yaml
+  - override /datamodule: fireds_spatial_datamodule.yaml
   - override /callbacks: default.yaml
   - override /logger: wandb.yaml
 
@@ -19,7 +19,6 @@ logger:
 
 model:
   hidden_size: 32
-  cnn_layers: 1
   positive_weight: 0.5
   lr: 0.0001
   lr_scheduler_step: 15

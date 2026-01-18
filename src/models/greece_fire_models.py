@@ -330,15 +330,15 @@ class CNN_fire_model(LightningModule):
             dynamic_features=None,
             static_features=None,
             hidden_size: int = 32,
-            cnn_layers: int = 1,
             lr: float = 0.001,
             positive_weight: float = 0.5,
             lr_scheduler_step: int = 10,
             lr_scheduler_gamma: float = 0.1,
             weight_decay: float = 0.0005,
             dropout: float = 0.5,
-            access_mode='spatiotemporal',
-            clc='vec'
+            # access_mode='spatiotemporal',
+            access_mode='spatial',
+            clc=None
     ):
         super().__init__()
         # Saves arguments to self.hparams
@@ -372,12 +372,15 @@ class CNN_fire_model(LightningModule):
         if not self.hparams['clc']:
             clc = None
             
-        inputs = combine_dynamic_static_inputs(dynamic, static, clc, 'spatiotemporal')
+        # inputs = combine_dynamic_static_inputs(dynamic, static, clc, 'spatiotemporal')
+        inputs = combine_dynamic_static_inputs(dynamic, static, clc, 'spatial')
         
         logits = self.forward(inputs)
         loss = self.criterion(logits, y)
+
         preds = torch.argmax(logits, dim=1)
         preds_proba = torch.exp(logits)[:, 1]
+
         return loss, preds, preds_proba, y
 
     def training_step(self, batch: Any, batch_idx: int):
