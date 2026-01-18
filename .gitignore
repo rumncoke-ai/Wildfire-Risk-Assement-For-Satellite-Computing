@@ -1,6 +1,7 @@
 datasets_grl
 datasets_grl/*
 datasets.tar.gz
+dataset_greece.nc
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
