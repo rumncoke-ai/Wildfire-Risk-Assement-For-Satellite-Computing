@@ -74,6 +74,14 @@ class ConvLSTM_fire_model(LightningModule):
 
         self.model = SimpleConvLSTM(hparams=self.hparams)
 
+        B = 256        
+        T = 10       
+        C = len(self.hparams.dynamic_features) + len(self.hparams.static_features) + 10
+        H = 25       
+        W = 25      
+
+        self.example_input_array = torch.zeros(B, T, C, H, W)
+
         # loss function
         self.criterion = torch.nn.NLLLoss(weight=torch.tensor([1. - positive_weight, positive_weight]))
         # use separate metric instance for train, val and test step
@@ -213,6 +221,13 @@ class LSTM_fire_model(LightningModule):
         # else:
         #     self.model = SimpleLSTM(hparams=self.hparams)
         self.model = SimpleLSTM(hparams=self.hparams)
+
+        B = 256        
+        T = 10       
+        C = len(self.hparams.dynamic_features) + len(self.hparams.static_features) + 10     
+
+        self.example_input_array = torch.zeros(B, T, C)
+
         self.weight_decay = weight_decay
         # loss function
         self.criterion = torch.nn.NLLLoss(weight=torch.tensor([1 - positive_weight, positive_weight]))
@@ -345,6 +360,13 @@ class CNN_fire_model(LightningModule):
         self.save_hyperparameters()
 
         self.model = SimpleCNN(hparams=self.hparams)
+
+        B = 256        
+        C = len(self.hparams.dynamic_features) + len(self.hparams.static_features)
+        H = 25       
+        W = 25      
+
+        self.example_input_array = torch.zeros(B, C, H, W)
 
         # Loss function
         self.criterion = torch.nn.NLLLoss(weight=torch.tensor([1. - positive_weight, positive_weight]))
