@@ -31,6 +31,8 @@ datamodule:
   batch_size: 256
   num_workers: 2
   pin_memory: False
+  access_mode: "spatial"
+  problem_class: "classification"
   nan_fill: -1.0
   clc: ${clc}
 

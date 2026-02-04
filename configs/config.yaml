@@ -73,7 +73,7 @@ sel_dynamic_features: [
 #    'era5_avg_sp',
 #    'era5_avg_tp',
 #    'smian',
-    'sminx',
+#    'sminx',
 #    'fwi',
 #    'era5_max_wind_u10',
 #    'era5_max_wind_v10',

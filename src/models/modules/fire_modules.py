@@ -101,76 +101,29 @@ class SimpleCNN(nn.Module):
         input_dim = len(hparams['static_features']) + len(hparams['dynamic_features'])
         # if hparams['clc'] == 'vec':
         #     input_dim += 10
-
-        hidden_size = hparams['hidden_size']
-        dropout = hparams['dropout']
-        kernel_size = 3
-
-        self.ln1 = torch.nn.LayerNorm(input_dim)
-
-        # cnn_layers = hparams['cnn_layers']
-
-        # self.conv3d = nn.Conv3d(
-        #     in_channels=input_dim, 
-        #     out_channels=hidden_size, 
-        #     kernel_size=(3, 3, 3),
-        #     padding=(1, 1, 1)
-        # )
-
         
-        # self.conv1 = nn.Conv2d(
-        #     hidden_size, 
-        #     hidden_size, 
-        #     kernel_size=(kernel_size, kernel_size), 
-        #     stride=(1, 1),
-        #     padding=(1, 1)
-        # )
-
-        # convolutional feature extractor
+        # Match spatial dataset architecture
         self.conv_block = nn.Sequential(
-            nn.Conv2d(input_dim, hidden_size, kernel_size=kernel_size, padding=1),
-            nn.BatchNorm2d(hidden_size),
+            nn.Conv2d(input_dim, 16, kernel_size=3, padding=1),
             nn.ReLU(),
-
-            nn.Conv2d(hidden_size, hidden_size, kernel_size=kernel_size, padding=1),
-            nn.BatchNorm2d(hidden_size),
-            nn.ReLU(),
-
-            nn.MaxPool2d(2),  # 25x25 → 12x12
-
-            nn.Conv2d(hidden_size, 2 * hidden_size, kernel_size=kernel_size, padding=1),
-            nn.BatchNorm2d(2 * hidden_size),
-            nn.ReLU(),
-
-            nn.MaxPool2d(2),  # 12x12 → 6x6
+            nn.MaxPool2d(2),  # 25×25 → 12×12
+            nn.Dropout(hparams['dropout'])  # Dropout after pooling
         )
-
-        # fully-connected part
-        # self.fc1 = nn.Linear((25 // 2) * (25 // 2) * hidden_size, 2 * hidden_size)
-        # self.drop1 = nn.Dropout(dropout)
-
-        # self.fc2 = nn.Linear(2 * hidden_size, hidden_size)
-        # self.drop2 = nn.Dropout(dropout)
-
-        # self.fc3 = nn.Linear(hidden_size, 2)
-        self.fc1 = nn.Linear(6 * 6 * 2 * hidden_size, 2 * hidden_size)
-        self.drop1 = nn.Dropout(dropout)
-
-        self.fc2 = nn.Linear(2 * hidden_size, hidden_size)
-        self.drop2 = nn.Dropout(dropout)
-
-        self.fc3 = nn.Linear(hidden_size, 2)
+        
+        # Calculate flattened size
+        # Assuming input is 25×25, after pool: 12×12
+        fc_input_size = 12 * 12 * 16
+        
+        self.fc = nn.Sequential(
+            nn.Linear(fc_input_size, 16),
+            nn.ReLU(),
+            nn.Linear(16, 8),
+            nn.ReLU(),
+            nn.Linear(8, 2)
+        )
     
     def forward(self, x: torch.Tensor):
-        # x: (B, C, H, W)
-        # x = self.ln1(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
-
         x = self.conv_block(x)
-
         x = torch.flatten(x, 1)
-        x = F.relu(self.drop1(self.fc1(x)))
-        x = F.relu(self.drop2(self.fc2(x)))
-        x = self.fc3(x)
-        
-        
+        x = self.fc(x)
         return torch.nn.functional.log_softmax(x, dim=1)
