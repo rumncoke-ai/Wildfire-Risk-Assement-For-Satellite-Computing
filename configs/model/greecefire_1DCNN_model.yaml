@@ -1,0 +1,10 @@
+_target_: src.models.greece_fire_models.CNN1D_fire_model
+
+dynamic_features: ${sel_dynamic_features}
+static_features: ${sel_static_features}
+hidden_size: 16
+positive_weight: 0.5
+lr: 0.0004
+lr_scheduler_step: 100
+lr_scheduler_gamma: 0.1
+weight_decay: 0.03

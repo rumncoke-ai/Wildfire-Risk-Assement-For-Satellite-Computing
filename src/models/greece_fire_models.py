@@ -5,7 +5,7 @@ from lightning.pytorch import LightningModule
 from torchmetrics import AUROC, AveragePrecision
 from torchmetrics.classification.accuracy import Accuracy
 
-from src.models.modules.fire_modules import SimpleLSTM, SimpleConvLSTM, SimpleCNN
+from src.models.modules.fire_modules import SimpleLSTM, SimpleConvLSTM, SimpleCNN, Simple1DCNN 
 
 
 def combine_dynamic_static_inputs(dynamic, static, clc, access_mode):
@@ -465,3 +465,135 @@ class CNN_fire_model(LightningModule):
         return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
    
 
+class CNN1D_fire_model(LightningModule):
+    """
+    A LightningModule organizes your PyTorch code into 5 sections:
+        - Computations (init).
+        - Train loop (training_step)
+        - Validation loop (validation_step)
+        - Test loop (test_step)
+        - Optimizers (configure_optimizers)
+
+    Read the docs:
+        https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html
+    """
+    def __init__(
+            self,
+            dynamic_features=None,
+            static_features=None,
+            hidden_size: int = 32,
+            lr: float = 0.001,
+            positive_weight: float = 0.5,
+            lr_scheduler_step: int = 10,
+            lr_scheduler_gamma: float = 0.1,
+            weight_decay: float = 0.0005,
+            dropout: float = 0.5,
+            access_mode='temporal',
+            clc=None
+    ):
+        super().__init__()
+        # Saves arguments to self.hparams
+        self.save_hyperparameters()
+
+        self.model = Simple1DCNN(hparams=self.hparams)
+
+        B = 256        
+        C = len(self.hparams.dynamic_features) + len(self.hparams.static_features) + 10
+        T = 10           
+
+        self.example_input_array = torch.zeros(B, T, C)
+
+        # Loss function
+        self.criterion = torch.nn.NLLLoss(weight=torch.tensor([1. - positive_weight, positive_weight]))
+
+        # Metrics for Train, Validation, and Test
+        self.train_accuracy = Accuracy(task="binary")
+        self.train_auc = AUROC(task="binary")
+        self.train_auprc = AveragePrecision(task="binary")
+
+        self.val_accuracy = Accuracy(task="binary")
+        self.val_auc = AUROC(task="binary")
+        self.val_auprc = AveragePrecision(task="binary")
+
+        self.test_accuracy = Accuracy(task="binary")
+        self.test_auc = AUROC(task="binary")
+        self.test_auprc = AveragePrecision(task="binary")
+
+    def forward(self, x: torch.Tensor):
+        return self.model(x)
+
+    def step(self, batch: Any):
+        dynamic, static, clc, y = batch
+        y = y.long()
+        
+        if not self.hparams['clc']:
+            clc = None
+            
+        inputs = combine_dynamic_static_inputs(dynamic, static, clc, 'temporal')
+        
+        logits = self.forward(inputs)
+        loss = self.criterion(logits, y)
+
+        preds = torch.argmax(logits, dim=1)
+        preds_proba = torch.exp(logits)[:, 1]
+
+        return loss, preds, preds_proba, y
+
+    def training_step(self, batch: Any, batch_idx: int):
+        loss, preds, preds_proba, targets = self.step(batch)
+        
+        # Log metrics
+        self.train_accuracy.update(preds, targets)
+        self.train_auc.update(preds_proba, targets)
+        self.train_auprc.update(preds_proba, targets)
+
+        self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("train/acc", self.train_accuracy, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("train/auc", self.train_auc, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("train/auprc", self.train_auprc, on_step=False, on_epoch=True, prog_bar=False)
+        return {"loss": loss, "preds": preds, "targets": targets}
+
+    def validation_step(self, batch: Any, batch_idx: int):
+        loss, preds, preds_proba, targets = self.step(batch)
+        phase = 'val'
+
+        # Log metrics
+        self.val_accuracy.update(preds, targets)
+        self.val_auc.update(preds_proba, targets)
+        self.val_auprc.update(preds_proba, targets)
+
+        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("val/acc", self.val_accuracy, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("val/auc", self.val_auc, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("val/auprc", self.val_auprc, on_step=False, on_epoch=True, prog_bar=False)
+        return {"loss": loss, "preds": preds, "targets": targets, "preds_proba": preds_proba}
+
+    def test_step(self, batch: Any, batch_idx: int):
+        loss, preds, preds_proba, targets = self.step(batch)
+        
+        # Log metrics
+        self.test_accuracy.update(preds, targets)
+        self.test_auc.update(preds_proba, targets)
+        self.test_auprc.update(preds_proba, targets)
+
+        self.log("test/loss", loss, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("test/acc", self.test_accuracy, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("test/auc", self.test_auc, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("test/auprc", self.test_auprc, on_step=False, on_epoch=True, prog_bar=False)
+        return {"loss": loss, "preds": preds, "targets": targets}
+
+    def on_test_epoch_end(self):
+        pass
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(
+            params=self.parameters(), 
+            lr=self.hparams.lr, 
+            weight_decay=self.hparams.weight_decay
+        )
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer, 
+            step_size=self.hparams.lr_scheduler_step,
+            gamma=self.hparams.lr_scheduler_gamma
+        )
+        return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}

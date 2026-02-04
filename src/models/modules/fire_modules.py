@@ -102,12 +102,15 @@ class SimpleCNN(nn.Module):
         # if hparams['clc'] == 'vec':
         #     input_dim += 10
         
+        hidden_size = hparams['hidden_size']
+        dropout = hparams['dropout']
+        
         # Match spatial dataset architecture
         self.conv_block = nn.Sequential(
-            nn.Conv2d(input_dim, 16, kernel_size=3, padding=1),
+            nn.Conv2d(input_dim, hidden_size, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(2),  # 25×25 → 12×12
-            nn.Dropout(hparams['dropout'])  # Dropout after pooling
+            nn.Dropout(dropout)
         )
         
         # Calculate flattened size
@@ -126,4 +129,41 @@ class SimpleCNN(nn.Module):
         x = self.conv_block(x)
         x = torch.flatten(x, 1)
         x = self.fc(x)
+        return torch.nn.functional.log_softmax(x, dim=1)
+
+
+class Simple1DCNN(nn.Module):
+    def __init__(self, hparams: dict):
+        super().__init__()
+        
+        input_dim = len(hparams['static_features']) + len(hparams['dynamic_features'])
+        if hparams['clc'] == 'vec':
+            input_dim += 10
+        
+        hidden_size = hparams['hidden_size']
+        dropout = hparams['dropout']
+        
+        # Match spatial dataset architecture
+        self.conv_block = nn.Sequential(
+            nn.Conv1d(input_dim, hidden_size, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool1d(2),
+            nn.Dropout(dropout),
+
+            nn.Conv1d(hidden_size, hidden_size, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool1d(2),
+            nn.Dropout(dropout),
+        )
+
+       
+        self.fc1 = nn.Linear(hidden_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, 2)
+    
+    def forward(self, x: torch.Tensor):
+        x = x.permute(0, 2, 1)
+        x = self.conv_block(x)
+        x = x.mean(dim=2)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
         return torch.nn.functional.log_softmax(x, dim=1)
