@@ -230,7 +230,12 @@ class LSTM_fire_model(LightningModule):
 
         self.weight_decay = weight_decay
         # loss function
-        self.criterion = torch.nn.NLLLoss(weight=torch.tensor([1 - positive_weight, positive_weight]))
+        
+        # self.criterion = torch.nn.NLLLoss(weight=torch.tensor([1 - positive_weight, positive_weight]))
+        class_weights = torch.tensor([1. - positive_weight, positive_weight])
+        self.register_buffer("class_weights", class_weights)
+        self.criterion = torch.nn.NLLLoss(weight=self.class_weights)
+        
         # use separate metric instance for train, val and test step
         # to ensure a proper reduction over the epoch
 
@@ -253,8 +258,19 @@ class LSTM_fire_model(LightningModule):
     def step(self, batch: Any):
         dynamic, static, clc, y = batch
         y = y.long()
+
         if not self.hparams['clc']:
             clc = None
+
+        device = self.device
+
+        dynamic = dynamic.to(device)
+        static = static.to(device)
+        y = y.to(device)
+
+        if clc is not None:
+            clc = clc.to(device)
+
         inputs = combine_dynamic_static_inputs(dynamic, static, clc, 'temporal')
 
         logits = self.forward(inputs)
@@ -369,7 +385,10 @@ class CNN_fire_model(LightningModule):
         self.example_input_array = torch.zeros(B, C, H, W)
 
         # Loss function
-        self.criterion = torch.nn.NLLLoss(weight=torch.tensor([1. - positive_weight, positive_weight]))
+        # self.criterion = torch.nn.NLLLoss(weight=torch.tensor([1. - positive_weight, positive_weight]))
+        class_weights = torch.tensor([1. - positive_weight, positive_weight])
+        self.register_buffer("class_weights", class_weights)
+        self.criterion = torch.nn.NLLLoss(weight=self.class_weights)
 
         # Metrics for Train, Validation, and Test
         self.train_accuracy = Accuracy(task="binary")
@@ -393,7 +412,14 @@ class CNN_fire_model(LightningModule):
         
         if not self.hparams['clc']:
             clc = None
-            
+
+        dynamic = dynamic.to(device)
+        static = static.to(device)
+        y = y.to(device)
+
+        if clc is not None:
+            clc = clc.to(device)
+
         # inputs = combine_dynamic_static_inputs(dynamic, static, clc, 'spatiotemporal')
         inputs = combine_dynamic_static_inputs(dynamic, static, clc, 'spatial')
         
@@ -504,7 +530,10 @@ class CNN1D_fire_model(LightningModule):
         self.example_input_array = torch.zeros(B, T, C)
 
         # Loss function
-        self.criterion = torch.nn.NLLLoss(weight=torch.tensor([1. - positive_weight, positive_weight]))
+        # self.criterion = torch.nn.NLLLoss(weight=torch.tensor([1. - positive_weight, positive_weight]))
+        class_weights = torch.tensor([1. - positive_weight, positive_weight])
+        self.register_buffer("class_weights", class_weights)
+        self.criterion = torch.nn.NLLLoss(weight=self.class_weights)
 
         # Metrics for Train, Validation, and Test
         self.train_accuracy = Accuracy(task="binary")
@@ -528,7 +557,14 @@ class CNN1D_fire_model(LightningModule):
         
         if not self.hparams['clc']:
             clc = None
-            
+
+        dynamic = dynamic.to(device)
+        static = static.to(device)
+        y = y.to(device)
+
+        if clc is not None:
+            clc = clc.to(device)
+
         inputs = combine_dynamic_static_inputs(dynamic, static, clc, 'temporal')
         
         logits = self.forward(inputs)
@@ -638,9 +674,12 @@ class MobileNetV2_fire_model(LightningModule):
                 param.requires_grad = False
         
         # Loss function
-        self.criterion = torch.nn.NLLLoss(
-            weight=torch.tensor([1. - positive_weight, positive_weight])
-        )
+        # self.criterion = torch.nn.NLLLoss(
+        #     weight=torch.tensor([1. - positive_weight, positive_weight])
+        # )
+        class_weights = torch.tensor([1. - positive_weight, positive_weight])
+        self.register_buffer("class_weights", class_weights)
+        self.criterion = torch.nn.NLLLoss(weight=self.class_weights)
         
         # Metrics
         self.train_accuracy = Accuracy(task="binary")
@@ -664,7 +703,14 @@ class MobileNetV2_fire_model(LightningModule):
         
         if not self.hparams['clc']:
             clc = None
-            
+
+        dynamic = dynamic.to(device)
+        static = static.to(device)
+        y = y.to(device)
+
+        if clc is not None:
+            clc = clc.to(device)
+
         # MobileNetV2 expects spatial inputs
         inputs = combine_dynamic_static_inputs(dynamic, static, clc, 'spatial')
         
@@ -784,9 +830,12 @@ class TinyTemporalTransformer_fire_model(LightningModule):
 
 
         # Loss
-        self.criterion = nn.NLLLoss(
-        weight=torch.tensor([1.0 - positive_weight, positive_weight])
-        )
+        # self.criterion = nn.NLLLoss(
+        # weight=torch.tensor([1.0 - positive_weight, positive_weight])
+        # )
+        class_weights = torch.tensor([1. - positive_weight, positive_weight])
+        self.register_buffer("class_weights", class_weights)
+        self.criterion = torch.nn.NLLLoss(weight=self.class_weights)
 
 
         # Metrics
@@ -820,6 +869,12 @@ class TinyTemporalTransformer_fire_model(LightningModule):
         if not self.hparams.clc:
             clc = None
 
+        dynamic = dynamic.to(device)
+        static = static.to(device)
+        y = y.to(device)
+
+        if clc is not None:
+            clc = clc.to(device)
 
         inputs = combine_dynamic_static_inputs(dynamic, static, clc, "temporal")
 

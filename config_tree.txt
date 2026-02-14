@@ -1,0 +1,134 @@
+CONFIG
++-- trainer
+|   `-- _target_: lightning.pytorch.trainer.Trainer                                                                                          
+|       min_epochs: 1                                                                                                                        
+|       max_epochs: 1                                                                                                                        
+|       accelerator: gpu                                                                                                                     
+|       devices: 1                                                                                                                           
+|       check_val_every_n_epoch: 1                                                                                                           
+|       deterministic: false                                                                                                                 
+|                                                                                                                                            
++-- model
+|   `-- _target_: src.models.greece_fire_models.LSTM_fire_model                                                                              
+|       dynamic_features:                                                                                                                    
+|       - 1 km 16 days NDVI                                                                                                                  
+|       - LST_Day_1km                                                                                                                        
+|       - LST_Night_1km                                                                                                                      
+|       - era5_max_d2m                                                                                                                       
+|       - era5_max_t2m                                                                                                                       
+|       - era5_max_sp                                                                                                                        
+|       - era5_max_tp                                                                                                                        
+|       - era5_max_wind_speed                                                                                                                
+|       - era5_min_rh                                                                                                                        
+|       static_features:                                                                                                                     
+|       - dem_mean                                                                                                                           
+|       - slope_mean                                                                                                                         
+|       - roads_distance                                                                                                                     
+|       - waterway_distance                                                                                                                  
+|       - population_density                                                                                                                 
+|       hidden_size: 64                                                                                                                      
+|       lstm_layers: 1                                                                                                                       
+|       positive_weight: 0.5                                                                                                                 
+|       lr: 0.001                                                                                                                            
+|       lr_scheduler_step: 15                                                                                                                
+|       lr_scheduler_gamma: 0.1                                                                                                              
+|       weight_decay: 0.001                                                                                                                  
+|       attention: false                                                                                                                     
+|       dropout: 0.5                                                                                                                         
+|       clc: vec                                                                                                                             
+|                                                                                                                                            
++-- datamodule
+|   `-- _target_: src.datamodules.greecefire_datamodule.FireDSDataModule                                                                     
+|       dataset_root: C:\Users\rchow\OneDrive\Desktop\Fall Research Code\Wildfire-Risk-Assement-For-Satellite-Computing/datasets_grl         
+|       batch_size: 256                                                                                                                      
+|       num_workers: 2                                                                                                                       
+|       pin_memory: false                                                                                                                    
+|       access_mode: temporal                                                                                                                
+|       problem_class: classification                                                                                                        
+|       nan_fill: -1.0                                                                                                                       
+|       sel_dynamic_features:                                                                                                                
+|       - 1 km 16 days NDVI                                                                                                                  
+|       - LST_Day_1km                                                                                                                        
+|       - LST_Night_1km                                                                                                                      
+|       - era5_max_d2m                                                                                                                       
+|       - era5_max_t2m                                                                                                                       
+|       - era5_max_sp                                                                                                                        
+|       - era5_max_tp                                                                                                                        
+|       - era5_max_wind_speed                                                                                                                
+|       - era5_min_rh                                                                                                                        
+|       sel_static_features:                                                                                                                 
+|       - dem_mean                                                                                                                           
+|       - slope_mean                                                                                                                         
+|       - roads_distance                                                                                                                     
+|       - waterway_distance                                                                                                                  
+|       - population_density                                                                                                                 
+|       prefetch_factor: 2                                                                                                                   
+|       persistent_workers: false                                                                                                            
+|       clc: vec                                                                                                                             
+|                                                                                                                                            
++-- callbacks
+|   `-- model_checkpoint:                                                                                                                    
+|         _target_: lightning.pytorch.callbacks.ModelCheckpoint                                                                              
+|         dirpath: checkpoints                                                                                                               
+|         filename: epoch_{epoch:03d}                                                                                                        
+|         monitor: val/loss                                                                                                                  
+|         verbose: true                                                                                                                      
+|         save_last: true                                                                                                                    
+|         save_top_k: 1                                                                                                                      
+|         mode: min                                                                                                                          
+|         auto_insert_metric_name: false                                                                                                     
+|         save_weights_only: false                                                                                                           
+|         every_n_train_steps: null                                                                                                          
+|         train_time_interval: null                                                                                                          
+|         every_n_epochs: null                                                                                                               
+|         save_on_train_epoch_end: null                                                                                                      
+|       early_stopping:                                                                                                                      
+|         _target_: lightning.pytorch.callbacks.EarlyStopping                                                                                
+|         monitor: val/acc                                                                                                                   
+|         patience: 100                                                                                                                      
+|         mode: max                                                                                                                          
+|       model_summary:                                                                                                                       
+|         _target_: lightning.pytorch.callbacks.RichModelSummary                                                                             
+|         max_depth: -1                                                                                                                      
+|       log_all_metrics:                                                                                                                     
+|         _target_: src.callbacks.wandb_callbacks.LogAllMetrics                                                                              
+|       log_model_efficiency:                                                                                                                
+|         _target_: src.callbacks.wandb_callbacks.LogModelEfficiency                                                                         
+|         sample_input_dynamic: null                                                                                                         
+|         sample_input_static: null                                                                                                          
+|       log_variable_importance:                                                                                                             
+|         _target_: src.callbacks.wandb_callbacks.LogVariableImportance                                                                      
+|         dynamic_features:                                                                                                                  
+|         - 1 km 16 days NDVI                                                                                                                
+|         - LST_Day_1km                                                                                                                      
+|         - LST_Night_1km                                                                                                                    
+|         - era5_max_d2m                                                                                                                     
+|         - era5_max_t2m                                                                                                                     
+|         - era5_max_sp                                                                                                                      
+|         - era5_max_tp                                                                                                                      
+|         - era5_max_wind_speed                                                                                                              
+|         - era5_min_rh                                                                                                                      
+|         static_features:                                                                                                                   
+|         - dem_mean                                                                                                                         
+|         - slope_mean                                                                                                                       
+|         - roads_distance                                                                                                                   
+|         - waterway_distance                                                                                                                
+|         - population_density                                                                                                               
+|                                                                                                                                            
++-- logger
+|   `-- wandb:                                                                                                                               
+|         _target_: lightning.pytorch.loggers.wandb.WandbLogger                                                                              
+|         save_dir: .                                                                                                                        
+|         offline: false                                                                                                                     
+|         id: null                                                                                                                           
+|         anonymous: null                                                                                                                    
+|         project: lightning-hydra-template                                                                                                  
+|         log_model: false                                                                                                                   
+|         prefix: ''                                                                                                                         
+|         group: ''                                                                                                                          
+|         tags: []                                                                                                                           
+|         job_type: ''                                                                                                                       
+|         name: WildfireRun_LSTM_sweep_20260213_1015                                                                                         
+|                                                                                                                                            
+`-- seed
+    `-- 1234                                                                                                                                 

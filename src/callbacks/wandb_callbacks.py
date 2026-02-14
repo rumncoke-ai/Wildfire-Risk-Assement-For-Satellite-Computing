@@ -11,9 +11,14 @@ from lightning.pytorch import Callback, Trainer
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.utilities import rank_zero_only
 from sklearn import metrics
-from sklearn.metrics import f1_score, precision_score, recall_score
+from sklearn.metrics import f1_score, precision_score, recall_score, confusion_matrix, accuracy_score, roc_auc_score
 import gc
 from thop import profile
+import copy
+import numpy as np
+import time
+from fvcore.nn import FlopCountAnalysis
+
 
 
 def get_wandb_logger(trainer: Trainer) -> WandbLogger:
@@ -85,281 +90,413 @@ class UploadCheckpointsAsArtifact(Callback):
         experiment.log_artifact(ckpts)
 
 
-class LogConfusionMatrix(Callback):
-    """Generate confusion matrix every epoch and send it to wandb.
-    Expects validation step to return predictions and targets.
-    """
+# class LogConfusionMatrix(Callback):
+#     """Generate confusion matrix every epoch and send it to wandb.
+#     Expects validation step to return predictions and targets.
+#     """
 
+#     def __init__(self):
+#         self.preds = []
+#         self.targets = []
+#         self.ready = True
+
+#     def on_sanity_check_start(self, trainer, pl_module) -> None:
+#         self.ready = False
+
+#     def on_sanity_check_end(self, trainer, pl_module):
+#         """Start executing this callback only after all validation sanity checks end."""
+#         self.ready = True
+
+#     def on_validation_batch_end(
+#             self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0
+#     ):
+#         """Gather data from single batch."""
+#         if self.ready:
+#             self.preds.append(outputs["preds"])
+#             self.targets.append(outputs["targets"])
+
+#     def on_validation_epoch_end(self, trainer, pl_module):
+#         """Generate confusion matrix."""
+#         if self.ready:
+#             logger = get_wandb_logger(trainer)
+#             experiment = logger.experiment
+
+#             preds = torch.cat(self.preds).cpu().numpy()
+#             targets = torch.cat(self.targets).cpu().numpy()
+
+#             confusion_matrix = metrics.confusion_matrix(y_true=targets, y_pred=preds)
+
+#             # set figure size
+#             plt.figure(figsize=(14, 8))
+
+#             # set labels size
+#             sn.set(font_scale=1.4)
+
+#             # set font size
+#             sn.heatmap(confusion_matrix, annot=True, annot_kws={"size": 8}, fmt="g")
+#             plt.xlabel('Predicted')
+#             plt.ylabel('True')
+
+#             # names should be uniqe or else charts from different experiments in wandb will overlap
+#             experiment.log({f"confusion_matrix/{experiment.name}": wandb.Image(plt)}, commit=False)
+
+#             # according to wandb docs this should also work but it crashes
+#             # experiment.log(f{"confusion_matrix/{experiment.name}": plt})
+
+#             # reset plot
+#             plt.clf()
+
+#             self.preds.clear()
+#             self.targets.clear()
+
+
+# class LogF1PrecRecHeatmap(Callback):
+#     """Generate f1, precision, recall heatmap every epoch and send it to wandb.
+#     Expects validation step to return predictions and targets.
+#     """
+
+#     def __init__(self, class_names: List[str] = None):
+#         self.preds = []
+#         self.targets = []
+#         self.ready = True
+
+#     def on_sanity_check_start(self, trainer, pl_module):
+#         self.ready = False
+
+#     def on_sanity_check_end(self, trainer, pl_module):
+#         """Start executing this callback only after all validation sanity checks end."""
+#         self.ready = True
+
+#     def on_validation_batch_end(
+#             self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0
+#     ):
+#         """Gather data from single batch."""
+#         if self.ready:
+#             self.preds.append(outputs["preds"])
+#             self.targets.append(outputs["targets"])
+
+#     def on_validation_epoch_end(self, trainer, pl_module):
+#         """Generate f1, precision and recall heatmap."""
+#         if self.ready:
+#             logger = get_wandb_logger(trainer=trainer)
+#             experiment = logger.experiment
+
+#             preds = torch.cat(self.preds).cpu().numpy()
+#             targets = torch.cat(self.targets).cpu().numpy()
+#             f1 = f1_score(targets, preds, average=None)
+#             r = recall_score(targets, preds, average=None)
+#             p = precision_score(targets, preds, average=None)
+#             data = [f1, p, r]
+
+#             # set figure size
+#             plt.figure(figsize=(14, 3))
+
+#             # set labels size
+#             sn.set(font_scale=1.2)
+
+#             # set font size
+#             sn.heatmap(
+#                 data,
+#                 annot=True,
+#                 annot_kws={"size": 10},
+#                 fmt=".3f",
+#                 yticklabels=["F1", "Precision", "Recall"],
+#             )
+
+#             # names should be uniqe or else charts from different experiments in wandb will overlap
+#             experiment.log({f"f1_p_r_heatmap/{experiment.name}": wandb.Image(plt)}, commit=False)
+
+#             # reset plot
+#             plt.clf()
+
+#             self.preds.clear()
+#             self.targets.clear()
+
+class LogAllMetrics(Callback):
+    """
+    Comprehensive metric logging callback that tracks ALL metrics from the paper:
+    - TP, FP, TN, FN
+    - Precision, Recall, F1-score
+    - AUROC, OA (Overall Accuracy)
+    - Per-class metrics
+    """
+    
     def __init__(self):
-        self.preds = []
-        self.targets = []
+        self.val_preds = []
+        self.val_targets = []
+        self.val_probs = []  # For AUROC
+        self.train_losses = []
+        self.val_losses = []
         self.ready = True
-
-    def on_sanity_check_start(self, trainer, pl_module) -> None:
-        self.ready = False
-
-    def on_sanity_check_end(self, trainer, pl_module):
-        """Start executing this callback only after all validation sanity checks end."""
-        self.ready = True
-
-    def on_validation_batch_end(
-            self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0
-    ):
-        """Gather data from single batch."""
-        if self.ready:
-            self.preds.append(outputs["preds"])
-            self.targets.append(outputs["targets"])
-
-    def on_validation_epoch_end(self, trainer, pl_module):
-        """Generate confusion matrix."""
-        if self.ready:
-            logger = get_wandb_logger(trainer)
-            experiment = logger.experiment
-
-            preds = torch.cat(self.preds).cpu().numpy()
-            targets = torch.cat(self.targets).cpu().numpy()
-
-            confusion_matrix = metrics.confusion_matrix(y_true=targets, y_pred=preds)
-
-            # set figure size
-            plt.figure(figsize=(14, 8))
-
-            # set labels size
-            sn.set(font_scale=1.4)
-
-            # set font size
-            sn.heatmap(confusion_matrix, annot=True, annot_kws={"size": 8}, fmt="g")
-            plt.xlabel('Predicted')
-            plt.ylabel('True')
-
-            # names should be uniqe or else charts from different experiments in wandb will overlap
-            experiment.log({f"confusion_matrix/{experiment.name}": wandb.Image(plt)}, commit=False)
-
-            # according to wandb docs this should also work but it crashes
-            # experiment.log(f{"confusion_matrix/{experiment.name}": plt})
-
-            # reset plot
-            plt.clf()
-
-            self.preds.clear()
-            self.targets.clear()
-
-
-class LogF1PrecRecHeatmap(Callback):
-    """Generate f1, precision, recall heatmap every epoch and send it to wandb.
-    Expects validation step to return predictions and targets.
-    """
-
-    def __init__(self, class_names: List[str] = None):
-        self.preds = []
-        self.targets = []
-        self.ready = True
-
+        
     def on_sanity_check_start(self, trainer, pl_module):
         self.ready = False
 
     def on_sanity_check_end(self, trainer, pl_module):
-        """Start executing this callback only after all validation sanity checks end."""
         self.ready = True
 
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        """Track training loss."""
+        if self.ready and outputs and "loss" in outputs:
+            self.train_losses.append(outputs["loss"].item())
+
     def on_validation_batch_end(
-            self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0
+        self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0
     ):
-        """Gather data from single batch."""
+        """Gather validation data from single batch."""
         if self.ready:
-            self.preds.append(outputs["preds"])
-            self.targets.append(outputs["targets"])
+            # Store predictions (class labels)
+            self.val_preds.append(outputs["preds"])
+            # Store targets
+            self.val_targets.append(outputs["targets"])
+            # Store probabilities for AUROC (if available)
+            if "probs" in outputs:
+                self.val_probs.append(outputs["probs"])
+            # Store validation loss if available
+            if "val_loss" in outputs:
+                self.val_losses.append(outputs["val_loss"].item())
 
     def on_validation_epoch_end(self, trainer, pl_module):
-        """Generate f1, precision and recall heatmap."""
-        if self.ready:
-            logger = get_wandb_logger(trainer=trainer)
+        """Calculate and log ALL metrics at the end of validation epoch."""
+        if self.ready and len(self.val_preds) > 0:
+            logger = get_wandb_logger(trainer)
             experiment = logger.experiment
 
-            preds = torch.cat(self.preds).cpu().numpy()
-            targets = torch.cat(self.targets).cpu().numpy()
-            f1 = f1_score(targets, preds, average=None)
-            r = recall_score(targets, preds, average=None)
-            p = precision_score(targets, preds, average=None)
-            data = [f1, p, r]
-
-            # set figure size
-            plt.figure(figsize=(14, 3))
-
-            # set labels size
-            sn.set(font_scale=1.2)
-
-            # set font size
-            sn.heatmap(
-                data,
-                annot=True,
-                annot_kws={"size": 10},
-                fmt=".3f",
-                yticklabels=["F1", "Precision", "Recall"],
-            )
-
-            # names should be uniqe or else charts from different experiments in wandb will overlap
-            experiment.log({f"f1_p_r_heatmap/{experiment.name}": wandb.Image(plt)}, commit=False)
-
-            # reset plot
-            plt.clf()
-
-            self.preds.clear()
-            self.targets.clear()
-
-
-# class LogModelFLOPs(Callback):
-#     """
-#     Calculates the FLOPs (Floating Point Operations) and Parameters of the model
-#     at the start of the run and logs them to WandB summary.
-#     """
-#     def __init__(self):
-#         self.calculated = False
-
-#     @rank_zero_only
-#     def on_train_start(self, trainer, pl_module):
-#         if self.calculated:
-#             return
-
-#         try:
-#             import thop
-#         except ImportError:
-#             print("❌ 'thop' library not found. Install it via: pip install thop")
-#             return
-
-#         # 1. Grab a single batch from the training dataloader
-#         try:
-#             # We fetch one batch to get the correct input shapes (batch_size, time, channels, etc.)
-#             dl = trainer.train_dataloader
-#             batch = next(iter(dl))
+            # Concatenate all predictions and targets
+            preds = torch.cat(self.val_preds).cpu().numpy()
+            targets = torch.cat(self.val_targets).cpu().numpy()
             
-#             # Ensure batch is on the correct device
-#             batch = [t.to(pl_module.device) if torch.is_tensor(t) else t for t in batch]
-#         except Exception as e:
-#             print(f"⚠️ Could not load a batch for FLOPs calculation: {e}")
-#             return
-
-#         # 2. Register a hook to capture the processed input
-#         # We do this because your LightningModule.step() does complex processing 
-#         # (combining dynamic+static) before passing it to self.model.
-#         # We want to measure self.model using the FINAL combined tensor.
-#         captured_input = []
-
-#         def hook_fn(module, inputs, output):
-#             # Inputs is a tuple; we take the first element (the tensor x)
-#             captured_input.append(inputs[0])
-
-#         # Attach hook to the inner model (SimpleCNN or SimpleLSTM)
-#         handle = pl_module.model.register_forward_hook(hook_fn)
-
-#         # 3. Run a "Dry" Forward Pass
-#         pl_module.eval() # Set to eval to avoid updating batchnorm stats
-#         with torch.no_grad():
-#             try:
-#                 # Trigger the forward pass logic defined in your training_step
-#                 pl_module.training_step(batch, batch_idx=0)
-#             except Exception as e:
-#                 # This might fail if the step relies on specific optimizer states, 
-#                 # but usually it's fine for a single pass.
-#                 print(f"⚠️ Dry run for FLOPs failed: {e}")
+            # Calculate all metrics
+            # 1. Confusion Matrix Components
+            cm = confusion_matrix(y_true=targets, y_pred=preds)
+            tn, fp, fn, tp = cm.ravel()
+            
+            # 2. Core Metrics
+            precision = precision_score(targets, preds, average='binary', zero_division=0)
+            recall = recall_score(targets, preds, average='binary', zero_division=0)
+            f1 = f1_score(targets, preds, average='binary', zero_division=0)
+            accuracy = accuracy_score(targets, preds)
+            
+            # 3. AUROC (if probabilities are available)
+            auroc = 0.0
+            if len(self.val_probs) > 0:
+                probs = torch.cat(self.val_probs).cpu().numpy()
+                # Assuming binary classification with probability of positive class
+                if probs.ndim == 2 and probs.shape[1] == 2:
+                    probs = probs[:, 1]  # Take probability of positive class
+                auroc = roc_auc_score(targets, probs)
+            
+            # 4. Calculate average losses
+            avg_train_loss = np.mean(self.train_losses) if self.train_losses else 0
+            avg_val_loss = np.mean(self.val_losses) if self.val_losses else 0
+            
+            # Log ALL metrics to wandb (matching paper's Table I & II format)
+            metrics_dict = {
+                # Confusion matrix components
+                "val/tp": int(tp),
+                "val/fp": int(fp),
+                "val/tn": int(tn),
+                "val/fn": int(fn),
+                
+                # Core classification metrics
+                "val/precision": precision * 100,  # Convert to percentage like paper
+                "val/recall": recall * 100,
+                "val/f1": f1 * 100,
+                "val/auroc": auroc * 100,
+                "val/accuracy": accuracy * 100,  # This is OA (Overall Accuracy)
+                
+                # Losses
+                "train/loss": avg_train_loss,
+                "val/loss": avg_val_loss,
+                
+                # Additional useful metrics
+                "val/true_positive_rate": tp / (tp + fn) if (tp + fn) > 0 else 0,
+                "val/false_positive_rate": fp / (fp + tn) if (fp + tn) > 0 else 0,
+                "val/specificity": tn / (tn + fp) if (tn + fp) > 0 else 0,
+            }
+            
+            experiment.log(metrics_dict, commit=False)
+            
+            # Log confusion matrix as image
+            self._log_confusion_matrix(experiment, cm, targets, preds)
+            
+            # Clear all stored values
+            self.val_preds.clear()
+            self.val_targets.clear()
+            self.val_probs.clear()
+            self.train_losses.clear()
+            self.val_losses.clear()
+    
+    def _log_confusion_matrix(self, experiment, cm, targets, preds):
+        """Log confusion matrix as an image."""
+        plt.figure(figsize=(10, 8))
+        sn.set(font_scale=1.2)
         
-#         # Cleanup: Remove hook and reset mode
-#         handle.remove()
-#         pl_module.train()
+        # Create annotated confusion matrix with percentages
+        cm_percentage = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] * 100
+        
+        # Plot with both counts and percentages
+        annot = np.empty_like(cm).astype(str)
+        nrows, ncols = cm.shape
+        for i in range(nrows):
+            for j in range(ncols):
+                c = cm[i, j]
+                p = cm_percentage[i, j]
+                annot[i, j] = f'{c}\n({p:.1f}%)'
+        
+        sn.heatmap(cm, annot=annot, fmt='', cmap='Blues', 
+                  xticklabels=['Negative', 'Positive'],
+                  yticklabels=['Negative', 'Positive'])
+        plt.xlabel('Predicted')
+        plt.ylabel('True')
+        plt.title(f'Confusion Matrix (TN={cm[0,0]}, FP={cm[0,1]}, FN={cm[1,0]}, TP={cm[1,1]})')
+        
+        experiment.log({"confusion_matrix": wandb.Image(plt)}, commit=False)
+        plt.close()
 
-#         # 4. Calculate FLOPs using the captured input
-#         if captured_input:
-#             try:
-#                 input_t = captured_input[0]
-                
-#                 # thop.profile returns (MACs, Params). FLOPs ~= 2 * MACs
-#                 macs, params = thop.profile(pl_module.model, inputs=(input_t, ), verbose=False)
-                
-#                 gflops = macs / 1e9
-#                 mparams = params / 1e6
 
-#                 print(f"\n📊 Model Efficiency: {gflops:.4f} GFLOPs | {mparams:.4f} MParams\n")
+class LogModelEfficiency(Callback):
 
-#                 # 5. Log to WandB Summary (Best for single-value comparison)
-#                 logger = get_wandb_logger(trainer)
-#                 # Using .summary ensures it appears at the top level of the run dashboard
-#                 logger.experiment.summary["GFLOPs"] = gflops
-#                 logger.experiment.summary["Params_M"] = mparams
-                
-#                 self.calculated = True
-                
-#             except Exception as e:
-#                 print(f"⚠️ Error calculating FLOPs with thop: {e}")
-#         else:
-#             print("⚠️ Could not capture model input. FLOPs not calculated.")
+    def __init__(self):
+        self.logged = False
 
-# class LogModelFLOPs(Callback):
-#     def __init__(self):
-#         self.calculated = False
+    @rank_zero_only
+    def on_train_start(self, trainer, pl_module):
 
-#     @rank_zero_only
-#     def on_fit_start(self, trainer, pl_module):
-#         if self.calculated:
-#             return
+        if self.logged:
+            return
 
-#         try:
-#             import thop
-#         except ImportError:
-#             print("❌ Install thop: pip install thop")
-#             return
+        logger = get_wandb_logger(trainer)
+        experiment = logger.experiment
 
-#         # --- Get one batch safely ---
-#         try:
-#             dl = trainer.train_dataloader()
-#             batch = next(iter(dl))
-#         except Exception as e:
-#             print(f"⚠️ Could not load batch: {e}")
-#             return
+        # Work on CPU copy to avoid CUDA issues
+        eval_model = copy.deepcopy(pl_module).cpu()
+        eval_model.eval()
 
-#         def move(obj):
-#             if torch.is_tensor(obj):
-#                 return obj.to(pl_module.device)
-#             if isinstance(obj, (list, tuple)):
-#                 return type(obj)(move(o) for o in obj)
-#             if isinstance(obj, dict):
-#                 return {k: move(v) for k, v in obj.items()}
-#             return obj
+        total_params = sum(p.numel() for p in eval_model.parameters())
+        trainable_params = sum(
+            p.numel() for p in eval_model.parameters() if p.requires_grad
+        )
 
-#         batch = move(batch)
+        mmacs = 0
+        samples_per_ms = 0
 
-#         # --- Capture final model input ---
-#         captured_input = []
+        try:
+            if not hasattr(pl_module, "example_input_array"):
+                raise ValueError("Model must define example_input_array for profiling.")
 
-#         def hook_fn(module, inputs, output):
-#             if inputs and torch.is_tensor(inputs[0]):
-#                 captured_input.append(inputs[0])
+            example_input = pl_module.example_input_array.cpu()
 
-#         handle = pl_module.model.register_forward_hook(hook_fn)
+            with torch.no_grad():
 
-#         pl_module.eval()
-#         with torch.no_grad():
-#             try:
-#                 pl_module.training_step(batch, batch_idx=0)
-#             except Exception as e:
-#                 print(f"⚠️ Dry run failed: {e}")
+                # -------- FLOPs / MACs --------
+                flops = FlopCountAnalysis(eval_model, example_input)
+                total_flops = flops.total()
 
-#         handle.remove()
-#         pl_module.train()
+                # Convert FLOPs → MACs (1 MAC = 2 FLOPs)
+                macs = total_flops / 2
+                mmacs = macs / 1e6
 
-#         if not captured_input:
-#             print("⚠️ No input captured for FLOPs")
-#             return
+                # -------- Throughput --------
+                for _ in range(10):  # warmup
+                    _ = eval_model(example_input)
 
-#         x = captured_input[0][:1]  # batch size = 1
+                n_samples = 100
+                start_time = time.time()
 
-#         macs, params = thop.profile(pl_module.model, inputs=(x,), verbose=False)
-#         gflops = 2 * macs / 1e9
-#         mparams = params / 1e6
+                for _ in range(n_samples):
+                    _ = eval_model(example_input)
 
-#         logger = get_wandb_logger(trainer)
-#         logger.experiment.summary["GFLOPs"] = gflops
-#         logger.experiment.summary["Params_M"] = mparams
+                total_time_ms = (time.time() - start_time) * 1000
+                samples_per_ms = (
+                    n_samples / total_time_ms if total_time_ms > 0 else 0
+                )
 
-#         print(f"\n📊 GFLOPs: {gflops:.4f} | Params: {mparams:.4f}M\n")
+        except Exception as e:
+            print(f"Efficiency logging failed: {e}")
 
-#         self.calculated = True
+        efficiency_metrics = {
+            "model/total_parameters": total_params,
+            "model/trainable_parameters": trainable_params,
+            "model/mmacs": mmacs,
+            "model/samples_per_ms": samples_per_ms,
+            "model/inference_time_ms_per_sample":
+                (1 / samples_per_ms) if samples_per_ms > 0 else 0,
+        }
+
+        experiment.config.update(efficiency_metrics)
+        experiment.log(efficiency_metrics, commit=False)
+
+        del eval_model
+        self.logged = True
+
+
+class LogVariableImportance(Callback):
+    """
+    Log which variables are being used (for ablation studies on limited variables).
+    This helps track your "limited variables" experiment.
+    """
+    
+    def __init__(self, dynamic_features: List[str], static_features: List[str]):
+        self.dynamic_features = dynamic_features
+        self.static_features = static_features
+        
+    @rank_zero_only
+    def on_train_start(self, trainer, pl_module):
+        """Log variable configuration."""
+        logger = get_wandb_logger(trainer)
+        experiment = logger.experiment
+        
+        # Log variable counts and names
+        variable_info = {
+            "data/num_dynamic_variables": len(self.dynamic_features),
+            "data/num_static_variables": len(self.static_features),
+            "data/total_variables": len(self.dynamic_features) + len(self.static_features),
+            "data/dynamic_variables": ", ".join(self.dynamic_features),
+            "data/static_variables": ", ".join(self.static_features),
+        }
+        
+        experiment.config.update(variable_info)
+        experiment.log(variable_info, commit=False)
+
+
+# Setup function to initialize wandb with proper config
+def setup_wandb(
+    project_name: str,
+    run_name: str,
+    model_name: str,
+    dynamic_features: List[str],
+    static_features: List[str],
+    neg_pos_ratio: int,
+    learning_rate: float,
+    batch_size: int,
+    epochs: int,
+    config_dict: dict = None
+):
+    """
+    Initialize wandb with all configuration parameters.
+    Call this before creating your trainer.
+    """
+    
+    # Base configuration
+    config = {
+        "model_name": model_name,
+        "dynamic_features": dynamic_features,
+        "static_features": static_features,
+        "num_dynamic": len(dynamic_features),
+        "num_static": len(static_features),
+        "total_variables": len(dynamic_features) + len(static_features),
+        "neg_pos_ratio": neg_pos_ratio,
+        "learning_rate": learning_rate,
+        "batch_size": batch_size,
+        "epochs": epochs,
+    }
+    
+    # Add any additional config
+    if config_dict:
+        config.update(config_dict)
+    
+    # Initialize wandb
+    wandb.init(project=project_name, name=run_name, config=config)
+    
+    return WandbLogger(project=project_name, name=run_name, log_model=True)

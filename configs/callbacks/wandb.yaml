@@ -15,11 +15,21 @@ upload_ckpts_as_artifact:
   ckpt_dir: "checkpoints/"
   upload_best_only: True
 
-log_f1_precision_recall_heatmap:
-  _target_: src.callbacks.wandb_callbacks.LogF1PrecRecHeatmap
+# log_f1_precision_recall_heatmap:
+#   _target_: src.callbacks.wandb_callbacks.LogF1PrecRecHeatmap
 
-log_confusion_matrix:
-  _target_: src.callbacks.wandb_callbacks.LogConfusionMatrix
+# log_confusion_matrix:
+#   _target_: src.callbacks.wandb_callbacks.LogConfusionMatrix
 
-# log_flop:
-#   _target_: src.callbacks.wandb_callbacks.LogModelFLOPs
+log_all_metrics:
+  _target_: src.callbacks.wandb_callbacks.LogAllMetrics
+
+# NEW: Model efficiency metrics (parameters, MMACs, inference speed)
+log_model_efficiency:
+  _target_: src.callbacks.wandb_callbacks.LogModelEfficiency
+
+# NEW: Variable importance logger (tracks which variables are being used)
+log_variable_importance:
+  _target_: src.callbacks.wandb_callbacks.LogVariableImportance
+  dynamic_features: ${sel_dynamic_features}
+  static_features: ${sel_static_features}

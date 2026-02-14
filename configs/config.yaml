@@ -96,3 +96,8 @@ sel_static_features : [
 ]
 
 clc: 'vec'
+
+dynamic_features_len: ${len:${sel_dynamic_features}}
+static_features_len: ${len:${sel_static_features}}
+
+total_variables: ${eval:'${dynamic_features_len} + ${static_features_len}'}
