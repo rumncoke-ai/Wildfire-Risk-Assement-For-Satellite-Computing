@@ -150,67 +150,67 @@ class UploadCheckpointsAsArtifact(Callback):
 #             self.targets.clear()
 
 
-# class LogF1PrecRecHeatmap(Callback):
-#     """Generate f1, precision, recall heatmap every epoch and send it to wandb.
-#     Expects validation step to return predictions and targets.
-#     """
+class LogF1PrecRecHeatmap(Callback):
+    """Generate f1, precision, recall heatmap every epoch and send it to wandb.
+    Expects validation step to return predictions and targets.
+    """
 
-#     def __init__(self, class_names: List[str] = None):
-#         self.preds = []
-#         self.targets = []
-#         self.ready = True
+    def __init__(self, class_names: List[str] = None):
+        self.preds = []
+        self.targets = []
+        self.ready = True
 
-#     def on_sanity_check_start(self, trainer, pl_module):
-#         self.ready = False
+    def on_sanity_check_start(self, trainer, pl_module):
+        self.ready = False
 
-#     def on_sanity_check_end(self, trainer, pl_module):
-#         """Start executing this callback only after all validation sanity checks end."""
-#         self.ready = True
+    def on_sanity_check_end(self, trainer, pl_module):
+        """Start executing this callback only after all validation sanity checks end."""
+        self.ready = True
 
-#     def on_validation_batch_end(
-#             self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0
-#     ):
-#         """Gather data from single batch."""
-#         if self.ready:
-#             self.preds.append(outputs["preds"])
-#             self.targets.append(outputs["targets"])
+    def on_validation_batch_end(
+            self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0
+    ):
+        """Gather data from single batch."""
+        if self.ready:
+            self.preds.append(outputs["preds"])
+            self.targets.append(outputs["targets"])
 
-#     def on_validation_epoch_end(self, trainer, pl_module):
-#         """Generate f1, precision and recall heatmap."""
-#         if self.ready:
-#             logger = get_wandb_logger(trainer=trainer)
-#             experiment = logger.experiment
+    def on_validation_epoch_end(self, trainer, pl_module):
+        """Generate f1, precision and recall heatmap."""
+        if self.ready:
+            logger = get_wandb_logger(trainer=trainer)
+            experiment = logger.experiment
 
-#             preds = torch.cat(self.preds).cpu().numpy()
-#             targets = torch.cat(self.targets).cpu().numpy()
-#             f1 = f1_score(targets, preds, average=None)
-#             r = recall_score(targets, preds, average=None)
-#             p = precision_score(targets, preds, average=None)
-#             data = [f1, p, r]
+            preds = torch.cat(self.preds).cpu().numpy()
+            targets = torch.cat(self.targets).cpu().numpy()
+            f1 = f1_score(targets, preds, average=None)
+            r = recall_score(targets, preds, average=None)
+            p = precision_score(targets, preds, average=None)
+            data = [f1, p, r]
 
-#             # set figure size
-#             plt.figure(figsize=(14, 3))
+            # set figure size
+            plt.figure(figsize=(14, 3))
 
-#             # set labels size
-#             sn.set(font_scale=1.2)
+            # set labels size
+            sn.set(font_scale=1.2)
 
-#             # set font size
-#             sn.heatmap(
-#                 data,
-#                 annot=True,
-#                 annot_kws={"size": 10},
-#                 fmt=".3f",
-#                 yticklabels=["F1", "Precision", "Recall"],
-#             )
+            # set font size
+            sn.heatmap(
+                data,
+                annot=True,
+                annot_kws={"size": 10},
+                fmt=".3f",
+                yticklabels=["F1", "Precision", "Recall"],
+            )
 
-#             # names should be uniqe or else charts from different experiments in wandb will overlap
-#             experiment.log({f"f1_p_r_heatmap/{experiment.name}": wandb.Image(plt)}, commit=False)
+            # names should be uniqe or else charts from different experiments in wandb will overlap
+            experiment.log({f"f1_p_r_heatmap/{experiment.name}": wandb.Image(plt)}, commit=False)
 
-#             # reset plot
-#             plt.clf()
+            # reset plot
+            plt.clf()
 
-#             self.preds.clear()
-#             self.targets.clear()
+            self.preds.clear()
+            self.targets.clear()
 
 class LogAllMetrics(Callback):
     """
