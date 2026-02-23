@@ -5,7 +5,7 @@
 
 defaults:
   - override /trainer: default.yaml # choose trainer from 'configs/trainer/'
-  - override /model: greecefire_MobileNetV2_model.yaml
+  - override /model: greecefire_ResNet18_model.yaml
   - override /datamodule: fireds_spatial_datamodule.yaml
   - override /callbacks: default.yaml
   - override /logger: wandb.yaml
@@ -15,16 +15,16 @@ defaults:
 
 logger:
   wandb:
-    name: ${oc.env:WANDB_NAME_PREFIX}_MobileNet_opt_${now:%Y%m%d_%H%M}
+    name: ${oc.env:WANDB_NAME_PREFIX}_ResNet18_opt_${now:%Y%m%d_%H%M}
 
 model:
   hidden_size: 32
-  positive_weight: 0.5
-  lr: 0.0001
+  positive_weight: 0.7
+  lr: 0.0003
   lr_scheduler_step: 15
-  lr_scheduler_gamma: 0.1
-  weight_decay: 0.01
-  dropout: 0.5
+  lr_scheduler_gamma: 0.5
+  weight_decay: 0.0005
+  dropout: 0.3
   freeze_backbone: False
   clc: ${clc}
 
@@ -38,4 +38,4 @@ datamodule:
   clc: ${clc}
 
 trainer:
-  max_epochs: 30
+  max_epochs: 60

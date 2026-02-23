@@ -19,7 +19,7 @@ logger:
 
 model:
   hidden_size: 32
-  positive_weight: 0.5
+  positive_weight: 0.7
   lr: 0.0001
   lr_scheduler_step: 15
   lr_scheduler_gamma: 0.1

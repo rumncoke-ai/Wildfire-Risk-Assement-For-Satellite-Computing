@@ -2,8 +2,9 @@ import torch.nn.functional as F
 import torch
 from torch import nn
 import numpy as np
-from torchvision.models import mobilenet_v2
+from torchvision.models import mobilenet_v2, resnet18
 from src.models.modules.convlstm import ConvLSTM
+import math
 
 
 np.seterr(divide='ignore', invalid='ignore')
@@ -108,26 +109,30 @@ class SimpleCNN(nn.Module):
         # Match spatial dataset architecture
         self.conv_block = nn.Sequential(
             nn.Conv2d(input_dim, hidden_size, kernel_size=3, padding=1),
+            nn.BatchNorm2d(hidden_size),
             nn.ReLU(),
             nn.MaxPool2d(2),  # 25×25 → 12×12
-            nn.Dropout(dropout)
+            nn.Dropout(dropout),
+            nn.AdaptiveAvgPool2d((1, 1))
         )
         
-        # Calculate flattened size
-        # Assuming input is 25×25, after pool: 12×12
-        fc_input_size = 12 * 12 * 16
+        # # Calculate flattened size
+        # # Assuming input is 25×25, after pool: 12×12
+        # fc_input_size = 12 * 12 * hidden_size
         
         self.fc = nn.Sequential(
-            nn.Linear(fc_input_size, 16),
+            nn.Linear(hidden_size, 16),
             nn.ReLU(),
             nn.Linear(16, 8),
             nn.ReLU(),
             nn.Linear(8, 2)
         )
+
+        self.flatten = nn.Flatten()
     
     def forward(self, x: torch.Tensor):
         x = self.conv_block(x)
-        x = torch.flatten(x, 1)
+        x = self.flatten(x)
         x = self.fc(x)
         return torch.nn.functional.log_softmax(x, dim=1)
 
@@ -169,159 +174,103 @@ class Simple1DCNN(nn.Module):
         return torch.nn.functional.log_softmax(x, dim=1)
 
 
-class MobileNetV2CNN(nn.Module):
+class ResNet18CNN(nn.Module):
     def __init__(self, hparams: dict):
         super().__init__()
         
         # Get input channels (static + dynamic features)
         input_dim = len(hparams['static_features']) + len(hparams['dynamic_features'])
-        
-        # Load pretrained MobileNetV2
-        self.mobilenet = mobilenet_v2(pretrained=True)
-        
-        # Modify the first conv layer to accept our input channels
-        # Original MobileNetV2 expects 3 channels (RGB), we need to adapt it
-        if input_dim != 3:
-            # Replace first convolutional layer to accept input_dim channels
-            original_conv = self.mobilenet.features[0][0]
-            self.mobilenet.features[0][0] = nn.Conv2d(
-                input_dim, 
-                original_conv.out_channels,
-                kernel_size=original_conv.kernel_size,
-                stride=original_conv.stride,
-                padding=original_conv.padding,
-                bias=False
-            )
-            
-            # Initialize the new layer weights properly
-            nn.init.kaiming_normal_(self.mobilenet.features[0][0].weight, mode='fan_out')
-            if self.mobilenet.features[0][0].bias is not None:
-                nn.init.zeros_(self.mobilenet.features[0][0].bias)
-        
-        # Get the number of features from the last layer
-        num_features = self.mobilenet.classifier[1].in_features
-        
-        # Replace classifier with our own (keep dropout if exists)
         dropout = hparams.get('dropout', 0.2)
-        self.mobilenet.classifier = nn.Sequential(
-            nn.Dropout(dropout),
-            nn.Linear(num_features, 2)
+
+        # Load ResNet18 (recommended: pretrained=False for non-image data)
+        self.resnet = resnet18(weights=None)
+
+        # 🔧 Modify first conv layer for multi-channel + small inputs
+        self.resnet.conv1 = nn.Conv2d(
+            input_dim,
+            64,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=False
         )
-        
-        # Alternatively, you can create a custom head
-        # self.mobilenet.classifier = nn.Sequential(
-        #     nn.Dropout(dropout),
-        #     nn.Linear(num_features, 256),
-        #     nn.ReLU(inplace=True),
-        #     nn.Dropout(dropout),
-        #     nn.Linear(256, 2)
-        # )
-    
+
+        # ❌ Remove maxpool (important for 25×25 inputs)
+        self.resnet.maxpool = nn.Identity()
+
+        # Replace classifier
+        num_features = self.resnet.fc.in_features
+
+        self.resnet.fc = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(num_features, 128),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Linear(128, 2)
+        )
+
     def forward(self, x: torch.Tensor):
-        x = self.mobilenet(x)
+        x = self.resnet(x)
         return torch.nn.functional.log_softmax(x, dim=1)
 
-
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model: int, max_len: int = 500):
-        super().__init__()
-
-
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len).unsqueeze(1)
-
-
-        div_term = torch.exp(
-        torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
-        )
-
-
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-
-
-        pe = pe.unsqueeze(0) # (1, T, D)
-        self.register_buffer("pe", pe)
-
-
-    def forward(self, x: torch.Tensor):
-        # x: (B, T, D)
-        T = x.size(1)
-        return x + self.pe[:, :T]
-
-class TinyTemporalTransformer(nn.Module):
-    """
-    Designed for small scientific time‑series:
-
-
-    Input: (B, T, C)
-    Output: log-probabilities for binary classification
-
-
-    Small parameter count → suitable for edge/satellite experiments.
-    """
-
-
+class TinyViT(nn.Module):
     def __init__(self, hparams: dict):
         super().__init__()
 
-
-        input_dim = len(hparams["dynamic_features"]) + len(hparams["static_features"])
-        if hparams.get("clc") == "vec":
+        input_dim = len(hparams['static_features']) + len(hparams['dynamic_features'])
+        if hparams['clc'] == 'vec':
             input_dim += 10
 
+        image_size = 25
+        patch_size = 5
+        num_patches = (image_size // patch_size) ** 2
+        embed_dim = hparams['hidden_size']
+        num_heads = 4
+        num_layers = 2
+        dropout = hparams['dropout']
 
-        d_model = hparams.get("hidden_size", 64)
-        n_heads = hparams.get("n_heads", 4)
-        n_layers = hparams.get("n_layers", 2)
-        dropout = hparams.get("dropout", 0.1)
+        self.patch_embed = nn.Conv2d(
+            input_dim,
+            embed_dim,
+            kernel_size=patch_size,
+            stride=patch_size
+        )
 
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.pos_embedding = nn.Parameter(
+            torch.zeros(1, num_patches + 1, embed_dim)
+        )
 
-        # Feature embedding
-        self.input_proj = nn.Linear(input_dim, d_model)
-        self.ln = nn.LayerNorm(d_model)
-
-
-        # Positional encoding
-        self.pos_encoder = PositionalEncoding(d_model)
-
-
-        # Transformer encoder
         encoder_layer = nn.TransformerEncoderLayer(
-        d_model=d_model,
-        nhead=n_heads,
-        dim_feedforward=d_model * 4,
-        dropout=dropout,
-        batch_first=True,
-        activation="gelu",
-        norm_first=True,
+            d_model=embed_dim,
+            nhead=num_heads,
+            dim_feedforward=embed_dim * 2,
+            dropout=dropout,
+            batch_first=True
         )
 
-
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
-
-
-        # Classification head (mean pooling)
-        self.classifier = nn.Sequential(
-        nn.LayerNorm(d_model),
-        nn.Dropout(dropout),
-        nn.Linear(d_model, 2),
+        self.transformer = nn.TransformerEncoder(
+            encoder_layer,
+            num_layers=num_layers
         )
 
+        self.norm = nn.LayerNorm(embed_dim)
+        self.head = nn.Linear(embed_dim, 2)
 
-    def forward(self, x: torch.Tensor):
-        # x: (B, T, C)
-        x = self.input_proj(x)
-        x = self.ln(x)
-        x = self.pos_encoder(x)
+    def forward(self, x):
+        x = self.patch_embed(x)  # (B, embed_dim, 5, 5)
+        x = x.flatten(2).transpose(1, 2)  # (B, num_patches, embed_dim)
 
+        B = x.size(0)
+        cls_tokens = self.cls_token.expand(B, -1, -1)
+        x = torch.cat((cls_tokens, x), dim=1)
 
-        x = self.transformer(x) # (B, T, D)
+        x = x + self.pos_embedding
+        x = self.transformer(x)
 
+        cls_output = x[:, 0]
+        cls_output = self.norm(cls_output)
 
-        # Mean pooling over time
-        x = x.mean(dim=1)
+        logits = self.head(cls_output)
 
-
-        x = self.classifier(x)
-        return F.log_softmax(x, dim=1)
+        return F.log_softmax(logits, dim=1)

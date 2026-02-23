@@ -2,10 +2,10 @@ _target_: src.models.greece_fire_models.ConvLSTM_fire_model
 
 dynamic_features: ${sel_dynamic_features}
 static_features: ${sel_static_features}
-hidden_size: 16
+hidden_size: 32
 lstm_layers: 1
-positive_weight: 0.5
+positive_weight: 0.7
 lr: 0.0001
-lr_scheduler_step: 100
-lr_scheduler_gamma: 0.1
-weight_decay: 0.035
+lr_scheduler_step: 15
+lr_scheduler_gamma: 0.5
+weight_decay: 0.0001

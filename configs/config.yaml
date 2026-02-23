@@ -95,7 +95,7 @@ sel_static_features : [
  'population_density',
 ]
 
-clc: 'vec'
+clc: ""
 
 dynamic_features_len: ${len:${sel_dynamic_features}}
 static_features_len: ${len:${sel_static_features}}

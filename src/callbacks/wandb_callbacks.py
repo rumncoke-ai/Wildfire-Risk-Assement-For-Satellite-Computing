@@ -227,6 +227,12 @@ class LogAllMetrics(Callback):
         self.val_probs = []  # For AUROC
         self.train_losses = []
         self.val_losses = []
+        
+        self.test_preds = []
+        self.test_targets = []
+        self.test_probs = []
+        self.test_losses = []
+
         self.ready = True
         
     def on_sanity_check_start(self, trainer, pl_module):
@@ -245,16 +251,10 @@ class LogAllMetrics(Callback):
     ):
         """Gather validation data from single batch."""
         if self.ready:
-            # Store predictions (class labels)
             self.val_preds.append(outputs["preds"])
-            # Store targets
             self.val_targets.append(outputs["targets"])
-            # Store probabilities for AUROC (if available)
-            if "probs" in outputs:
-                self.val_probs.append(outputs["probs"])
-            # Store validation loss if available
-            if "val_loss" in outputs:
-                self.val_losses.append(outputs["val_loss"].item())
+            self.val_probs.append(outputs["preds_proba"])
+            self.val_losses.append(outputs["loss"].item())
 
     def on_validation_epoch_end(self, trainer, pl_module):
         """Calculate and log ALL metrics at the end of validation epoch."""
@@ -327,12 +327,82 @@ class LogAllMetrics(Callback):
             self.train_losses.clear()
             self.val_losses.clear()
     
+    def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
+        """Gather test data from single batch."""
+        if self.ready:
+            self.test_preds.append(outputs["preds"])
+            self.test_targets.append(outputs["targets"])
+            self.test_probs.append(outputs["preds_proba"])
+            self.test_losses.append(outputs["loss"].item())
+
+    def on_test_epoch_end(self, trainer, pl_module):
+        """Calculate and log ALL metrics at the end of test epoch."""
+        if self.ready and len(self.test_preds) > 0:
+            logger = get_wandb_logger(trainer)
+            experiment = logger.experiment
+
+            preds = torch.cat(self.test_preds).cpu().numpy()
+            targets = torch.cat(self.test_targets).cpu().numpy()
+
+            # Confusion matrix
+            cm = confusion_matrix(y_true=targets, y_pred=preds)
+            tn, fp, fn, tp = cm.ravel()
+
+            # Core metrics
+            precision = precision_score(targets, preds, average='binary', zero_division=0)
+            recall = recall_score(targets, preds, average='binary', zero_division=0)
+            f1 = f1_score(targets, preds, average='binary', zero_division=0)
+            accuracy = accuracy_score(targets, preds)
+
+            # AUROC
+            auroc = 0.0
+            if len(self.test_probs) > 0:
+                probs = torch.cat(self.test_probs).cpu().numpy()
+                if probs.ndim == 2 and probs.shape[1] == 2:
+                    probs = probs[:, 1]
+                auroc = roc_auc_score(targets, probs)
+
+            avg_test_loss = np.mean(self.test_losses) if self.test_losses else 0
+
+            metrics_dict = {
+                # Confusion matrix
+                "test/tp": int(tp),
+                "test/fp": int(fp),
+                "test/tn": int(tn),
+                "test/fn": int(fn),
+
+                # Metrics (percentage to match paper)
+                "test/precision": precision * 100,
+                "test/recall": recall * 100,
+                "test/f1": f1 * 100,
+                "test/auroc": auroc * 100,
+                "test/accuracy": accuracy * 100,
+
+                "test/loss": avg_test_loss,
+
+                # Extra
+                "test/true_positive_rate": tp / (tp + fn) if (tp + fn) > 0 else 0,
+                "test/false_positive_rate": fp / (fp + tn) if (fp + tn) > 0 else 0,
+                "test/specificity": tn / (tn + fp) if (tn + fp) > 0 else 0,
+            }
+
+            experiment.log(metrics_dict, commit=False)
+
+            # Log confusion matrix
+            self._log_confusion_matrix(experiment, cm, targets, preds)
+
+            # Clear test storage
+            self.test_preds.clear()
+            self.test_targets.clear()
+            self.test_probs.clear()
+            self.test_losses.clear()
+
+
     def _log_confusion_matrix(self, experiment, cm, targets, preds):
         """Log confusion matrix as an image."""
         plt.figure(figsize=(10, 8))
         sn.set(font_scale=1.2)
         
-        # Create annotated confusion matrix with percentages
         cm_percentage = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] * 100
         
         # Plot with both counts and percentages
