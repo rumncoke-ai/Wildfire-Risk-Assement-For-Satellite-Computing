@@ -785,7 +785,7 @@ class ViT_fire_model(LightningModule):
         # Saves arguments to self.hparams
         self.save_hyperparameters()
 
-        self.model = SimpleCNN(hparams=self.hparams)
+        self.model = TinyViT(hparams=self.hparams)
 
         B = 256        
         C = len(self.hparams.dynamic_features) + len(self.hparams.static_features)
