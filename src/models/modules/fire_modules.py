@@ -730,6 +730,13 @@ class HybridCNNViT(nn.Module):
 
         stat_feat = self.static_branch(static)
 
+        # fused = torch.cat([dyn_feat, stat_feat], dim=1)
+
+        gamma = self.gamma(stat_feat)
+        beta = self.beta(stat_feat)
+
+        dyn_feat = gamma * dyn_feat + beta
+
         fused = torch.cat([dyn_feat, stat_feat], dim=1)
 
         logits = self.classifier(fused)
