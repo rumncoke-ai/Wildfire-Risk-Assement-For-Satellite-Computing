@@ -74,12 +74,15 @@ class FireDataset_npy(Dataset):
         self.positives_list = list((dataset_path / 'positives').glob('*dynamic.npy'))
         self.positives_list = list(zip(self.positives_list, [1] * (len(self.positives_list))))
 
-        val_year = 2020
-        test_year = min(val_year + 1, 2021)
+        val_year = 2019
+        # test_year = min(val_year + 1, 2021)
+        test_year = 2020
+        # test_years = [2020, 2021]
 
         self.train_positive_list = [(x, y) for (x, y) in self.positives_list if int(x.stem[:4]) < val_year]
         self.val_positive_list = [(x, y) for (x, y) in self.positives_list if int(x.stem[:4]) == val_year]
         self.test_positive_list = [(x, y) for (x, y) in self.positives_list if int(x.stem[:4]) == test_year]
+        # self.test_positive_list = [(x, y) for (x, y) in self.positives_list if int(x.stem[:4]) in test_years]
 
         self.negatives_list = list((dataset_path / 'negatives_clc').glob('*dynamic.npy'))
         self.negatives_list = list(zip(self.negatives_list, [0] * (len(self.negatives_list))))
@@ -93,9 +96,15 @@ class FireDataset_npy(Dataset):
 
         self.negatives_list = list((dataset_path / 'negatives_clc').glob('*dynamic.npy'))
         self.negatives_list = list(zip(self.negatives_list, [0] * (len(self.negatives_list))))
+        
         self.test_negative_list = random.sample(
             [(x, y) for (x, y) in self.negatives_list if int(x.stem[:4]) == test_year],
             len(self.test_positive_list) * neg_pos_ratio)
+
+        # self.test_negative_list = random.sample(
+        #     [(x, y) for (x, y) in self.negatives_list if int(x.stem[:4]) in test_years],
+        #     len(self.test_positive_list) * neg_pos_ratio
+        # )
 
         self.dynamic_idxfeat = [(i, feat) for i, feat in enumerate(self.variable_dict['dynamic']) if
                                 feat in self.dynamic_features]

@@ -1,7 +1,8 @@
 from typing import List, Optional
+import torch
 
 import hydra
-from omegaconf import DictConfig
+from omegaconf import DictConfig, ListConfig
 from lightning.pytorch import (
     Callback,
     LightningDataModule,
@@ -15,6 +16,7 @@ from src.utils import utils
 
 log = utils.get_logger(__name__)
 
+torch.serialization.add_safe_globals([ListConfig, DictConfig])
 
 def train(config: DictConfig) -> Optional[float]:
     """Contains training pipeline.
@@ -26,6 +28,8 @@ def train(config: DictConfig) -> Optional[float]:
     Returns:
         Optional[float]: Metric score for hyperparameter optimization.
     """
+    torch.backends.cudnn.benchmark = True
+    torch.cuda.empty_cache()
 
     # Set seed for random number generators in pytorch, numpy and python.random
     if "seed" in config:
@@ -71,6 +75,8 @@ def train(config: DictConfig) -> Optional[float]:
         callbacks=callbacks,
         logger=logger,
     )
+
+    # ckpt_path=r"C:\Users\rchow\OneDrive\Desktop\Fall Research Code\Wildfire-Risk-Assement-For-Satellite-Computing\logs\runs\2026-03-04\13-45-29\checkpoints\epoch_001.ckpt"
 
     # Train the model
     log.info("Starting training!")

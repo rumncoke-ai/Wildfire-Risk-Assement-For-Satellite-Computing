@@ -5,8 +5,8 @@
 
 defaults:
   - override /trainer: default.yaml # choose trainer from 'configs/trainer/'
-  - override /model: greecefire_ViT_model.yaml
-  - override /datamodule: fireds_spatial_datamodule.yaml
+  - override /model: greecefire_fusion_ViT_model.yaml
+  - override /datamodule: fireds_spatiotemporal_datamodule.yaml
   - override /callbacks: default.yaml
   - override /logger: wandb.yaml
 
@@ -15,7 +15,7 @@ defaults:
 
 logger:
   wandb:
-    name: ${oc.env:WANDB_NAME_PREFIX}_ViT_opt_${now:%Y%m%d_%H%M}
+    name: ${oc.env:WANDB_NAME_PREFIX}_FusionViT_opt_${now:%Y%m%d_%H%M}
 
 model:
   hidden_size: 32
@@ -23,18 +23,18 @@ model:
   lr: 3e-4
   lr_scheduler_step: 15
   lr_scheduler_gamma: 0.1
-  weight_decay: 0.001
-  dropout: 0.4
+  weight_decay: 5e-4
+  dropout: 0.5
   clc: ${clc}
 
 datamodule:
-  batch_size: 256
+  batch_size: 64
   num_workers: 4
   pin_memory: True
-  access_mode: "spatial"
+  access_mode: "spatiotemporal"
   problem_class: "classification"
   nan_fill: -1.0
   clc: ${clc}
 
 trainer:
-  max_epochs: 30
+  max_epochs: 60

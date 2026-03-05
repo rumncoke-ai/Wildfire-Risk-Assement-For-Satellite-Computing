@@ -30,7 +30,7 @@ model:
 
 datamodule:
   batch_size: 256
-  num_workers: 2
+  num_workers: 8
   pin_memory: False
   access_mode: "spatial"
   problem_class: "classification"
@@ -38,4 +38,4 @@ datamodule:
   clc: ${clc}
 
 trainer:
-  max_epochs: 60
+  max_epochs: 1

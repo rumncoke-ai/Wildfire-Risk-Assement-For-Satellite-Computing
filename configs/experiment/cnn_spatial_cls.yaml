@@ -37,4 +37,4 @@ datamodule:
   clc: ${clc}
 
 trainer:
-  max_epochs: 60
+  max_epochs: 54

@@ -5,7 +5,7 @@ from lightning.pytorch import LightningModule
 from torchmetrics import AUROC, AveragePrecision
 from torchmetrics.classification.accuracy import Accuracy
 
-from src.models.modules.fire_modules import SimpleLSTM, SimpleConvLSTM, SimpleCNN, Simple1DCNN,ResNet18CNN, TinyViT 
+from src.models.modules.fire_modules import SimpleLSTM, SimpleConvLSTM, SimpleCNN, Simple1DCNN,ResNet18CNN, TinyViT, HybridCNNViT
 
 
 def combine_dynamic_static_inputs(dynamic, static, clc, access_mode):
@@ -886,6 +886,174 @@ class ViT_fire_model(LightningModule):
             lr=self.hparams.lr, 
             weight_decay=self.hparams.weight_decay
         )
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer, 
+            step_size=self.hparams.lr_scheduler_step,
+            gamma=self.hparams.lr_scheduler_gamma
+        )
+        return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
+   
+class EdgeFusionViT_Wildfire(LightningModule):
+    def __init__(
+            self,
+            dynamic_features=None,
+            static_features=None,
+            hidden_size: int = 32,
+            lr: float = 0.001,
+            positive_weight: float = 0.5,
+            lr_scheduler_step: int = 10,
+            lr_scheduler_gamma: float = 0.1,
+            weight_decay: float = 0.0005,
+            dropout: float = 0.5,
+            access_mode='spatiotemporal',
+            # access_mode='spatial',
+            clc=None
+    ):
+        super().__init__()
+        # Saves arguments to self.hparams
+        self.save_hyperparameters()
+
+        # self.model = DualBranchViT(hparams=self.hparams)
+        self.model = HybridCNNViT(hparams=self.hparams)
+
+        B = 256
+        T = 10
+        C_dyn = len(self.hparams.dynamic_features)
+        C_stat = len(self.hparams.static_features)
+        H = 25
+        W = 25
+  
+        self.example_input_array = (
+            torch.zeros(B, C_stat, H, W),       # static
+            torch.zeros(B, T, C_dyn, H, W),     # dynamic
+        )
+
+        # Loss function
+        # self.criterion = torch.nn.NLLLoss(weight=torch.tensor([1. - positive_weight, positive_weight]))
+        class_weights = torch.tensor([1. - positive_weight, positive_weight])
+        self.register_buffer("class_weights", class_weights)
+        self.criterion = torch.nn.NLLLoss(weight=self.class_weights)
+
+        # Metrics for Train, Validation, and Test
+        self.train_accuracy = Accuracy(task="binary")
+        self.train_auc = AUROC(task="binary")
+        self.train_auprc = AveragePrecision(task="binary")
+
+        self.val_accuracy = Accuracy(task="binary")
+        self.val_auc = AUROC(task="binary")
+        self.val_auprc = AveragePrecision(task="binary")
+
+        self.test_accuracy = Accuracy(task="binary")
+        self.test_auc = AUROC(task="binary")
+        self.test_auprc = AveragePrecision(task="binary")
+
+    def forward(self, static, dynamic):
+        return self.model(static, dynamic)
+
+    def step(self, batch: Any):
+        dynamic, static, clc, y = batch
+        y = y.long()
+        
+        if not self.hparams['clc']:
+            clc = None
+
+        inputs = combine_dynamic_static_inputs(dynamic, static, clc, 'spatiotemporal')
+        # inputs = combine_dynamic_static_inputs(dynamic, static, clc, 'spatial')
+        
+        logits = self.forward(static, dynamic)
+        loss = self.criterion(logits, y)
+
+        preds = torch.argmax(logits, dim=1)
+        preds_proba = torch.exp(logits)[:, 1]
+
+        return loss, preds, preds_proba, y
+
+    def training_step(self, batch: Any, batch_idx: int):
+        loss, preds, preds_proba, targets = self.step(batch)
+        
+        # Log metrics
+        self.train_accuracy.update(preds, targets)
+        self.train_auc.update(preds_proba, targets)
+        self.train_auprc.update(preds_proba, targets)
+
+        self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("train/acc", self.train_accuracy, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("train/auc", self.train_auc, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("train/auprc", self.train_auprc, on_step=False, on_epoch=True, prog_bar=False)
+        return {"loss": loss, "preds": preds, "targets": targets}
+
+    def validation_step(self, batch: Any, batch_idx: int):
+        loss, preds, preds_proba, targets = self.step(batch)
+        phase = 'val'
+
+        # Log metrics
+        self.val_accuracy.update(preds, targets)
+        self.val_auc.update(preds_proba, targets)
+        self.val_auprc.update(preds_proba, targets)
+
+        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("val/acc", self.val_accuracy, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("val/auc", self.val_auc, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("val/auprc", self.val_auprc, on_step=False, on_epoch=True, prog_bar=False)
+        return {"loss": loss, "preds": preds, "targets": targets, "preds_proba": preds_proba}
+
+    def test_step(self, batch: Any, batch_idx: int):
+        loss, preds, preds_proba, targets = self.step(batch)
+        
+        # Log metrics
+        self.test_accuracy.update(preds, targets)
+        self.test_auc.update(preds_proba, targets)
+        self.test_auprc.update(preds_proba, targets)
+
+        self.log("test/loss", loss, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("test/acc", self.test_accuracy, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("test/auc", self.test_auc, on_step=False, on_epoch=True, prog_bar=False)
+        self.log("test/auprc", self.test_auprc, on_step=False, on_epoch=True, prog_bar=False)
+        return {"loss": loss, "preds": preds, "targets": targets, "preds_proba": preds_proba}
+
+    def on_test_epoch_end(self):
+        pass
+
+    # def configure_optimizers(self):
+    #     optimizer = torch.optim.AdamW(
+    #         self.parameters(),
+    #         lr=self.hparams.lr,
+    #         weight_decay=self.hparams.weight_decay
+    #     )
+
+    #     warmup =  torch.optim.lr_scheduler.LinearLR(
+    #         optimizer,
+    #         start_factor=0.1,
+    #         total_iters=5  # warmup for 5 epochs
+    #     )
+
+    #     cosine =  torch.optim.lr_scheduler.CosineAnnealingLR(
+    #         optimizer,
+    #         T_max=self.trainer.max_epochs - 5,
+    #         eta_min=1e-6
+    #     )
+
+    #     scheduler = torch.optim.lr_scheduler.SequentialLR(
+    #         optimizer,
+    #         schedulers=[warmup, cosine],
+    #         milestones=[5]
+    #     )
+
+    #     return {
+    #         "optimizer": optimizer,
+    #         "lr_scheduler": {
+    #             "scheduler": scheduler,
+    #             "interval": "epoch",
+    #         },
+    #     }
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(
+            params=self.parameters(), 
+            lr=self.hparams.lr, 
+            weight_decay=self.hparams.weight_decay
+        )
+
         lr_scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer, 
             step_size=self.hparams.lr_scheduler_step,
